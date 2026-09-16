@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: mozfuthouse
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /api/state
+    disk:
+      name: mzf_data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: production
+      - key: MZF_DB_FILE
+        value: data/mozfuthouse.db
