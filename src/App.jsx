@@ -903,13 +903,7 @@ function AuthGate({ hasUsers, view, setView, error, setError, onSetupAdmin, onLo
         </div>
 
         <div className="fx-gate-box">
-          {isSetup ? (
-            <>
-              <h2 className="fx-auth-title" style={{ marginBottom: 4 }}>Criar conta de Administrador</h2>
-              <div className="fx-auth-sub" style={{ marginBottom: 20 }}>É a primeira vez aqui — crie o acesso principal que gere todo o campeonato.</div>
-            </>
-          ) : (
-            view === 'recuperar' ? (
+          {!isSetup && view === 'recuperar' ? (
               <div>
                 <h2 className="fx-auth-title" style={{ marginBottom: 4 }}>Recuperar password</h2>
                 <div className="fx-auth-sub" style={{ marginBottom: 20 }}>Receba um código de 6 dígitos por email para poder definir uma nova password.</div>
@@ -952,10 +946,17 @@ function AuthGate({ hasUsers, view, setView, error, setError, onSetupAdmin, onLo
               </div>
             ) : (
               <>
+            {isSetup ? (
+              <>
+              <h2 className="fx-auth-title" style={{ marginBottom: 4 }}>Criar conta de Administrador</h2>
+              <div className="fx-auth-sub" style={{ marginBottom: 20 }}>É a primeira vez aqui — crie o acesso principal que gere todo o campeonato.</div>
+              </>
+            ) : (
             <div className="fx-gate-tabs">
               <button type="button" className={view === 'login' ? 'active' : ''} onClick={() => { setView('login'); setError(''); }}><LogIn size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />Entrar</button>
               <button type="button" className={view === 'registo' ? 'active' : ''} onClick={() => { setView('registo'); setError(''); }}><UserPlus size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />Criar conta pública</button>
             </div>
+            )}
 
           <form onSubmit={submit}>
             {(isSetup || view === 'registo') && (
@@ -996,7 +997,7 @@ function AuthGate({ hasUsers, view, setView, error, setError, onSetupAdmin, onLo
           </div>
               </>
             )
-          )}
+          }
         </div>
       </div>
     </div>
