@@ -254,7 +254,7 @@ table.fx-table td.num, table.fx-table th.num { text-align: center; font-variant-
     z-index: 55; padding: 20px 12px; overflow-y: auto;
   }
   .menu-open .fx-side { transform: none; box-shadow: 0 0 40px rgba(0, 0, 0, 0.45); }
-  .fx-scrim { display: block; position: fixed; inset: 0; background: rgba(5, 9, 18, 0.6); z-index: 50; }
+  .menu-open .fx-scrim { display: block; position: fixed; inset: 0; background: rgba(5, 9, 18, 0.6); z-index: 50; }
   .fx-main { padding: 18px 14px; flex: 1; min-width: 0; }
   .fx-h1 { font-size: 1.4rem; }
   .fx-panel { padding: 14px; overflow-x: auto; }
