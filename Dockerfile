@@ -26,17 +26,14 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Cria pasta de dados persistente
-RUN mkdir -p /app/data && chown node:node /app/data
+# Cria pasta de dados persistente (volumes Railway montam como root)
+RUN mkdir -p /app/data
 
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server
-COPY --chown=node:node --from=build /app/data/.gitkeep ./data/.gitkeep
-
-# Executa como utilizador sem privilégios
-USER node
+COPY --from=build /app/data/.gitkeep ./data/.gitkeep
 
 EXPOSE 3000
 
