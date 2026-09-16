@@ -58,7 +58,7 @@ function mergeByKey(base, incoming, removed) {
     if (item.id != null) {
       if (remove.has(item.id)) continue;
       const i = idx.get(item.id);
-      if (i != null) out[i] = item;
+      if (i != null) out[i] = { ...out[i], ...item };
       else { out.push(item); idx.set(item.id, out.length - 1); }
     } else {
       out.push(item);

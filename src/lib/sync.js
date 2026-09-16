@@ -16,6 +16,31 @@ let connected = false;
 let reconnectTimer = null;
 let recoverySeq = 0;
 const recoveryWaiters = new Map();
+const pendingKey = 'mozfuthouse.pendingWrites';
+
+function loadPending() {
+  try {
+    const raw = localStorage.getItem(pendingKey);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+
+function savePending(arr) {
+  try { localStorage.setItem(pendingKey, JSON.stringify(arr.slice(-50))); } catch (e) { /* ignore */ }
+}
+
+function flushPending() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const pending = loadPending();
+  if (pending.length === 0) return;
+  savePending([]);
+  pending.forEach((p) => {
+    try {
+      ws.send(JSON.stringify({ type: 'write', key: p.key, value: p.value, removed: p.removed || [], origin: clientId }));
+    } catch (e) { savePending(loadPending().concat([p])); }
+  });
+}
 
 export function isSynced() {
   return connected;
@@ -38,7 +63,7 @@ export function connectSync() {
     scheduleReconnect();
     return;
   }
-  ws.onopen = () => { connected = true; };
+  ws.onopen = () => { connected = true; flushPending(); };
   ws.onmessage = (ev) => {
     let msg;
     try { msg = JSON.parse(ev.data); } catch (e) { return; }
@@ -70,11 +95,16 @@ function scheduleReconnect() {
 }
 
 export function pushWrite(key, value, removedIds) {
+  const p = { key, value, removed: removedIds || [], at: Date.now() };
   if (ws && ws.readyState === WebSocket.OPEN) {
     try {
-      ws.send(JSON.stringify({ type: 'write', key, value, removed: removedIds || [], origin: clientId }));
-    } catch (e) { /* ignore */ }
+      ws.send(JSON.stringify({ type: 'write', key, value, removed: p.removed, origin: clientId }));
+      return;
+    } catch (e) { /* fallthrough to pending queue */ }
   }
+  const pending = loadPending();
+  pending.push(p);
+  savePending(pending);
 }
 
 export function recoveryRequest(payload) {

@@ -257,9 +257,31 @@ export default function MozFutHouse() {
       if (key === '__state') {
         const locais = dataRef.current;
         Object.keys(locais).forEach(k => {
+          if (k === 'session' || k === 'dataRef' || k === 'dataRef.current') return;
           const serverKey = k === 'users' ? 'app_users' : k;
-          const remoto = value[serverKey];
-          if (Array.isArray(remoto) && remoto.length === 0 && (locais[k] || []).length > 0) pushWrite(serverKey, locais[k]);
+          const remoto = Array.isArray(value[serverKey]) ? value[serverKey] : [];
+          const localList = Array.isArray(locais[k]) ? locais[k] : [];
+          if (remoto.length === 0) {
+            if (localList.length > 0) pushWrite(serverKey, localList, []);
+            return;
+          }
+          let mudou = false;
+          const fundido = remoto.map(item => {
+            if (!item || item.id == null) return item;
+            const l = localList.find(x => x && x.id === item.id);
+            if (!l) return item;
+            const merged = { ...item };
+            for (const campo of Object.keys(l)) {
+              const lv = l[campo];
+              const rv = merged[campo];
+              if (lv !== undefined && (rv === undefined || rv === '' || rv === null)) {
+                merged[campo] = lv;
+                mudou = true;
+              }
+            }
+            return merged;
+          });
+          if (mudou) pushWrite(serverKey, fundido, []);
         });
         return;
       }
@@ -1089,13 +1111,15 @@ function Utilizadores({ users, teams, players, matches, currentUser, addUser, er
   }
 
   function guardarLogo() {
-    updateConfig([{ id: 'app', logo, atualizadoEm: new Date().toISOString() }]);
+    const cfg = (dataRef.current.config && dataRef.current.config[0]) || {};
+    updateConfig([{ ...cfg, id: 'app', logo, atualizadoEm: new Date().toISOString() }]);
     setImportedMsg('Logo do sistema atualizado.');
   }
 
   function removerLogo() {
     setLogo('');
-    updateConfig([{ id: 'app', logo: '', atualizadoEm: new Date().toISOString() }]);
+    const cfg = (dataRef.current.config && dataRef.current.config[0]) || {};
+    updateConfig([{ ...cfg, id: 'app', logo: '', atualizadoEm: new Date().toISOString() }]);
     setImportedMsg('Logo removido — voltou o quadrado padrão.');
   }
 
@@ -1836,15 +1860,16 @@ const CONV_STATUS = [
 ];
 
 function EscalacaoModal({ match, players, matches, teamName, editable, myTeamId, onSave, onClose }) {
+  const podeEditar = editable && match.status !== 'realizado';
   const [draft, setDraft] = useState(() => {
     const base = {};
     [match.mandante, match.visitante].forEach(tId => { base[tId] = (match.convocados || {})[tId] || []; });
     return base;
   });
-  const canEditTeam = (tId) => (myTeamId ? tId === myTeamId : true) && !!editable;
+  const canEditTeam = (tId) => (myTeamId ? tId === myTeamId : true) && podeEditar;
   const teveVermelho = (pId) => matches.some(mx => mx.status === 'realizado' && (mx.eventos || []).some(e => e.jogadorId === pId && e.tipo === 'vermelho'));
   function setConv(tId, pId, status) {
-    if (!editable || (myTeamId && tId !== myTeamId)) return;
+    if (!podeEditar || (myTeamId && tId !== myTeamId)) return;
     setDraft(d => {
       const cur = (d[tId] || []).filter(x => x.jogadorId !== pId);
       const next = status === 'nao' ? cur : [...cur, { jogadorId: pId, status }];
@@ -1893,7 +1918,7 @@ function EscalacaoModal({ match, players, matches, teamName, editable, myTeamId,
         })}
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
           <button className="fx-btn" style={{ flex: 1, justifyContent: 'center' }} onClick={onClose}>Fechar</button>
-          {editable && <button className="fx-btn fx-btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => onSave(draft)}><Check size={15} /> Guardar escalação</button>}
+          {podeEditar && <button className="fx-btn fx-btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => onSave(draft)}><Check size={15} /> Guardar escalação</button>}
         </div>
       </div>
     </div>
@@ -2019,7 +2044,7 @@ function Calendario({ teams, players, matches, updateMatches, teamName, teamColo
                   {gestaoOps && m.status === 'agendado' && <button className="fx-btn" title="Adiar jogo (nova data e local)" onClick={() => { setAdiarId(m.id); setAdiarDraft({ data: m.data || '', hora: m.hora || '', local: m.local || '' }); }}><CalendarDays size={13} /> Adiar</button>}
                   {gestaoOps && m.status === 'agendado' && <button className="fx-btn" title="Falta de comparecência — a equipa presente vence por 6–0" onClick={() => setWoId(m.id)}><AlertTriangle size={13} /> W.O.</button>}
 {gestao && <button className="fx-btn fx-btn-icon" title="Definir transmissão" onClick={() => { setStreamEditId(m.id); setStreamDraft({ streamUrl: m.streamUrl || '', streamOn: !!m.streamOn }); }}><Pencil size={13} /></button>}
-                   {gestaoConvocados2 && <button className="fx-btn fx-btn-icon" title="Convocados e escalação" onClick={() => setConvId(m.id)}><Users size={13} /></button>}
+                   {gestaoConvocados2 && m.status === 'agendado' && <button className="fx-btn fx-btn-icon" title="Convocados e escalação" onClick={() => setConvId(m.id)}><Users size={13} /></button>}
                    {gestao && <button className="fx-btn fx-btn-icon fx-btn-danger" onClick={() => removeMatch(m.id)}><Trash2 size={13} /></button>}
                 </span>
               </div>
@@ -2114,7 +2139,7 @@ function Calendario({ teams, players, matches, updateMatches, teamName, teamColo
             players={players}
             matches={matches}
             teamName={teamName}
-            editable={!!gestaoConvocados2}
+            editable={!!gestaoConvocados2 && cm.status !== 'realizado'}
             myTeamId={myTeamId}
             onSave={(conv) => { updateMatches(matches.map(x => x.id === cm.id ? { ...x, convocados: conv } : x)); setConvId(null); }}
             onClose={() => setConvId(null)}
