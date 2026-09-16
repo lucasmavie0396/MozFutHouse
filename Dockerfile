@@ -25,19 +25,17 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV MZF_DB_FILE=data/mozfuthouse.db
 
 # Cria pasta de dados persistente
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && chown node:node /app/data
 
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server
-COPY --from=build /app/data/.gitkeep ./data/.gitkeep
+COPY --chown=node:node --from=build /app/data/.gitkeep ./data/.gitkeep
 
 # Executa como utilizador sem privilégios
-RUN chown -R node:node /app && chmod -R u+rwX /app
 USER node
 
 EXPOSE 3000

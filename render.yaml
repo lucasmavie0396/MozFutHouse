@@ -15,5 +15,3 @@ services:
         value: 3000
       - key: NODE_ENV
         value: production
-      - key: MZF_DB_FILE
-        value: data/mozfuthouse.db
