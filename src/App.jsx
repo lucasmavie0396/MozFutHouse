@@ -4,7 +4,7 @@ import {
   Home, Users, User, CalendarDays, ListOrdered, Target, Star,
   Settings, Plus, Trash2, Pencil, X, Check, ShieldCheck,
   LogIn, LogOut, KeyRound, UserPlus, Mail, Shield,
-  AlertTriangle, Upload, FileJson, RefreshCw, Tv, Trophy, Megaphone, Menu, Save, UserCog, Lock, FileSpreadsheet, Volume2, VolumeX
+  AlertTriangle, Upload, FileJson, RefreshCw, Tv, Trophy, Megaphone, Menu, Save, UserCog, Lock, FileSpreadsheet, Volume2, VolumeX, BarChart3, Eye
 } from 'lucide-react';
 import { connectSync, subscribe, pushWrite, recoveryRequest } from './lib/sync.js';
 
@@ -27,6 +27,13 @@ const BLOQUEO_MS = 60000;
 
 function uid(prefix) {
   return prefix + '_' + Math.random().toString(36).slice(2, 9);
+}
+
+function diaLocal(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
 
 class Boundary extends Component {
@@ -312,6 +319,36 @@ export default function MozFutHouse() {
     updateConfig([{ ...cfg, id: 'app', acoes: [{ id: uid('log'), tipo, atorNome: atorOverride || currentUser?.nome || 'Sistema', info, data: new Date().toISOString() }, ...acoes] }]);
   }
 
+  function registarAcesso() {
+    const cfg = (dataRef.current.config && dataRef.current.config[0]) || {};
+    const stats = cfg.stats || {};
+    const acessos = stats.acessos || {};
+    const dia = diaLocal();
+    const val = (acessos[dia] || 0) + 1;
+    const chaves = Object.keys(acessos).sort().slice(-120);
+    const novoAcessos = { ...acessos, [dia]: val };
+    Object.keys(novoAcessos).forEach(k => { if (!chaves.some(c => c === k) && k !== dia) delete novoAcessos[k]; });
+    updateConfig([{ ...cfg, id: 'app', stats: { ...stats, acessos: novoAcessos } }]);
+  }
+
+  function registarVisualizacao(matchId) {
+    const uidAtual = currentUser?.id;
+    if (!uidAtual || !matchId) return;
+    const cfg = (dataRef.current.config && dataRef.current.config[0]) || {};
+    const stats = cfg.stats || {};
+    const vis = Array.isArray(stats.visualizacoes) ? stats.visualizacoes : [];
+    const dia = diaLocal();
+    const alvo = vis.find(v => v.matchId === matchId && v.dia === dia);
+    if (alvo) {
+      if (alvo.ids && alvo.ids.includes(uidAtual)) return;
+      alvo.ids = [...(alvo.ids || []), uidAtual];
+    } else {
+      vis.unshift({ matchId, dia, ids: [uidAtual] });
+    }
+    const visCortado = vis.slice(0, 500);
+    updateConfig([{ ...cfg, id: 'app', stats: { ...stats, visualizacoes: visCortado } }]);
+  }
+
   function toggleBloqueio(u) {
     const alvo = users.find(x => x.id === u.id);
     if (!alvo) return;
@@ -360,6 +397,7 @@ export default function MozFutHouse() {
     setCurrentUser(novo);
     saveSession(novo.id);
     setAuthError('');
+    registarAcesso();
   }
 
   async function handleLogin(email, password) {
@@ -387,6 +425,7 @@ export default function MozFutHouse() {
       setBloqueioAte(0);
       setAuthError('');
       logAcao('login', `${conta.nome} iniciou sessão`, conta.nome);
+      registarAcesso();
     } else {
       const novo = tentativasFalhadas + 1;
       setTentativasFalhadas(novo);
@@ -412,6 +451,7 @@ export default function MozFutHouse() {
     saveSession(novo.id);
     setAuthError('');
     logAcao('registo', `${novo.nome} criou conta pública`, novo.nome);
+    registarAcesso();
   }
 
   function handleLogout() {
@@ -581,6 +621,7 @@ export default function MozFutHouse() {
     { id: 'estatisticas', label: 'Melhor Jogador', icon: Star },
     { id: 'campeonatos', label: 'Campeonatos', icon: Trophy },
     { id: 'exportar', label: 'Exportar', icon: FileSpreadsheet },
+    { id: 'acessos', label: 'Acessos', icon: BarChart3 },
     { id: 'publicidade', label: 'Publicidade', icon: Megaphone },
     { id: 'publico', label: 'Utilizadores Públicos', icon: UserCog },
     { id: 'utilizadores', label: 'Utilizadores', icon: Shield },
@@ -729,7 +770,8 @@ export default function MozFutHouse() {
               {tab === 'transmissoes' && (
                 <Transmissoes matches={matches} teamName={teamName} teamColor={teamColor} teamFoto={teamFoto}
                   updateMatches={updateMatches} gestao={gestaoTransmissoes}
-                  activeChamp={activeChamp} championships={championships} onSelect={selectChamp} champNivel={champNivel} />
+                  activeChamp={activeChamp} championships={championships} onSelect={selectChamp} champNivel={champNivel}
+                  onAssistir={registarVisualizacao} />
               )}
               {tab === 'parceiros' && (
                 <Parceiros ads={ads} />
@@ -746,6 +788,9 @@ export default function MozFutHouse() {
               )}
               {tab === 'exportar' && isAdmin && (
                 <Exportar championships={championships} teams={teams} players={players} matches={matches} teamName={teamName} />
+              )}
+              {tab === 'acessos' && isAdmin && (
+                <Acessos config={config} matches={matches} users={users} teamName={teamName} />
               )}
               {tab === 'publico' && isAdmin && (
                 <ControloPublico users={users} config={config} currentUser={currentUser}
@@ -2368,7 +2413,7 @@ function embedUrl(url) {
   return u;
 }
 
-function Transmissoes({ matches, teamName, teamColor, teamFoto, updateMatches, gestao, activeChamp, championships, onSelect, champNivel }) {
+function Transmissoes({ matches, teamName, teamColor, teamFoto, updateMatches, gestao, activeChamp, championships, onSelect, champNivel, onAssistir }) {
   const [watchId, setWatchId] = useState(null);
   const [linkEditId, setLinkEditId] = useState(null);
   const [linkDraft, setLinkDraft] = useState({ streamUrl: '', streamOn: false });
@@ -2463,7 +2508,7 @@ function Transmissoes({ matches, teamName, teamColor, teamFoto, updateMatches, g
                     <span>{m.wo ? 'W.O.' : (m.status === 'realizado' ? 'Realizado' : 'Agendado')} · Rodada {m.rodada} · {m.data} {m.hora || ''}</span>
                     <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                       {temLink && <span className="fx-tag">Transmissão</span>}
-                      {temLink && <button className="fx-btn fx-btn-primary" onClick={() => setWatchId(m.id)}><Tv size={15} /> Ver transmissão</button>}
+                      {temLink && <button className="fx-btn fx-btn-primary" onClick={() => { setWatchId(m.id); if (onAssistir) onAssistir(m.id); }}><Tv size={15} /> Ver transmissão</button>}
                       {gestao && <button className="fx-btn" onClick={() => { setLinkEditId(m.id); setLinkDraft({ streamUrl: m.streamUrl || '', streamOn: !!m.streamOn }); }}><Pencil size={13} /> {temLink ? 'Editar link' : 'Colocar link'}</button>}
                     </span>
                   </div>
@@ -2921,6 +2966,108 @@ function Publicidade({ ads, updateAds }) {
         ))}
         </div>
       )}
+      </div>
+    </div>
+  );
+}
+
+function Acessos({ config, matches, users, teamName }) {
+  const cfg = (config && config[0]) || {};
+  const stats = cfg.stats || {};
+  const acessos = stats.acessos || {};
+  const vis = Array.isArray(stats.visualizacoes) ? stats.visualizacoes : [];
+  const hoje = diaLocal();
+  const dias = Object.keys(acessos).sort().slice(-14);
+  const totalHoje = acessos[hoje] || 0;
+  const totalSemana = dias.slice(-7).reduce((s, d) => s + (acessos[d] || 0), 0);
+  const totalMes = Object.keys(acessos).sort().slice(-30).reduce((s, d) => s + (acessos[d] || 0), 0);
+  const maxDia = Math.max(1, ...dias.map(d => acessos[d] || 0));
+
+  const visPorJogo = {};
+  vis.forEach(v => {
+    const k = v.matchId;
+    visPorJogo[k] = visPorJogo[k] || { ids: new Set(), dias: {} };
+    (v.ids || []).forEach(id => visPorJogo[k].ids.add(id));
+    visPorJogo[k].dias[v.dia] = true;
+  });
+
+  const linhasJogos = matches
+    .filter(m => visPorJogo[m.id])
+    .map(m => ({ match: m, espectadores: visPorJogo[m.id].ids.size, dias: Object.keys(visPorJogo[m.id].dias).length }))
+    .sort((a, b) => b.espectadores - a.espectadores || (b.match.data + b.match.hora || '').localeCompare(a.match.data + a.match.hora || ''));
+
+  const labelDia = (d) => {
+    if (d === hoje) return `${d} · hoje`;
+    const date = new Date(d + 'T12:00:00');
+    return `${d} · ${date.toLocaleDateString('pt-PT', { weekday: 'short' })}`;
+  };
+
+  return (
+    <div>
+      <div className="fx-top">
+        <div><h1 className="fx-h1">Acessos e audiência</h1>
+          <div className="fx-sub">Número de acessos diários na plataforma e utilizadores que assistiram cada jogo pela transmissão.</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
+        <div className="fx-stat"><div className="n">{totalHoje}</div><div className="l">Acessos hoje</div></div>
+        <div className="fx-stat"><div className="n">{totalSemana}</div><div className="l">Últimos 7 dias</div></div>
+        <div className="fx-stat"><div className="n">{totalMes}</div><div className="l">Últimos 30 dias</div></div>
+        <div className="fx-stat"><div className="n">{users.length}</div><div className="l">Contas registadas</div></div>
+      </div>
+
+      <div className="fx-panel">
+        <h2 className="fx-panel-title">Acessos diários <span className="fx-chipsub">últimos 14 dias</span></h2>
+        {dias.length === 0 ? <div className="fx-empty">Ainda sem acessos registados.</div> : (
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, minHeight: 150, overflowX: 'auto', paddingBottom: 4 }}>
+            {dias.map(d => (
+              <div key={d} style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 34 }}>
+                <span style={{ fontSize: '0.72rem', color: 'var(--accent)', fontWeight: 600 }}>{acessos[d] || 0}</span>
+                <div style={{ width: 26, height: Math.max(4, Math.round((acessos[d] || 0) / maxDia * 110)), background: 'var(--accent)', borderRadius: 4 }} />
+                <span style={{ fontSize: '0.6rem', color: 'var(--ink-dim)', textAlign: 'center', whiteSpace: 'nowrap' }}>{d.slice(5)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {dias.length > 0 && (
+          <div className="fx-scroll" style={{ marginTop: 10 }}>
+            <table className="fx-table">
+              <thead><tr><th>Dia</th><th className="num">Acessos</th></tr></thead>
+              <tbody>
+                {dias.slice().reverse().map(d => (
+                  <tr key={d}><td>{labelDia(d)}</td><td className="num">{acessos[d] || 0}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="fx-panel">
+        <h2 className="fx-panel-title">Jogos assistidos <span className="fx-chipsub">utilizadores logados que abriram a transmissão</span></h2>
+        {linhasJogos.length === 0 ? <div className="fx-empty">Ninguém assistiu ainda a transmissões. Quando um utilizador abre «Ver transmissão», fica aqui registado.</div> : (
+          <div className="fx-scroll">
+            <table className="fx-table">
+              <thead><tr><th>Jogo</th><th className="num">Espectadores únicos</th><th className="num">Dias de visualização</th></tr></thead>
+              <tbody>
+                {linhasJogos.map(({ match: m, espectadores, dias }) => (
+                  <tr key={m.id}>
+                    <td><span style={{ fontWeight: 600 }}>{teamName(m.mandante)}</span> vs <span style={{ fontWeight: 600 }}>{teamName(m.visitante)}</span><div className="fx-clock">{m.data} {m.hora || ''} · Rodada {m.rodada}</div></td>
+                    <td className="num">{espectadores}</td>
+                    <td className="num">{dias}</td>
+                  </tr>
+                ))}
+                <tr style={{ borderTop: '2px solid var(--accent)' }}>
+                  <td><span style={{ fontWeight: 600 }}>Total</span></td>
+                  <td className="num">{linhasJogos.reduce((s, x) => s + x.espectadores, 0)}</td>
+                  <td className="num">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="fx-note" style={{ marginTop: 10 }}>Cada utilizador conta uma vez por jogo e por dia na audiência. Os acessos diários contam os inícios de sessão (admin, associação, clube, gestor e públicos).</div>
       </div>
     </div>
   );
