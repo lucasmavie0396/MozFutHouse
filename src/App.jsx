@@ -1112,14 +1112,14 @@ function Utilizadores({ users, teams, players, matches, currentUser, addUser, er
   }
 
   function guardarLogo() {
-    const cfg = (dataRef.current.config && dataRef.current.config[0]) || {};
+    const cfg = (config && config[0]) || {};
     updateConfig([{ ...cfg, id: 'app', logo, atualizadoEm: new Date().toISOString() }]);
     setImportedMsg('Logo do sistema atualizado.');
   }
 
   function removerLogo() {
     setLogo('');
-    const cfg = (dataRef.current.config && dataRef.current.config[0]) || {};
+    const cfg = (config && config[0]) || {};
     updateConfig([{ ...cfg, id: 'app', logo: '', atualizadoEm: new Date().toISOString() }]);
     setImportedMsg('Logo removido — voltou o quadrado padrão.');
   }
