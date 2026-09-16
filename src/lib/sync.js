@@ -1,10 +1,15 @@
-const DEV_PORTS = ['5173', '4173'];
 const SYNC_PORT = '3000';
+
+function isLocalDev() {
+  return ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname);
+}
 
 function resolveSyncUrl() {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const port = DEV_PORTS.includes(window.location.port) ? SYNC_PORT : (window.location.port || '80');
-  return proto + '://' + window.location.hostname + ':' + port;
+  if (isLocalDev()) {
+    return proto + '://' + window.location.hostname + ':' + SYNC_PORT;
+  }
+  return proto + '://' + window.location.host;
 }
 
 const KEYS = ['teams', 'players', 'matches', 'app_users', 'championships', 'ads', 'config'];
