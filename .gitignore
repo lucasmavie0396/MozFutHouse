@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Data store (dados locais — passwords, campeonatos, etc.)
+data/store.json
+data/store_backup_*.json
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.json
+
+# Keep data directory in the repo
+!data/.gitkeep
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+
+# Ficheiros temporários / de teste
+ws-cal.mjs
+filelist.txt
+files.txt
+/0
+/test-jogo*.mjs
+/test-*.mjs
+
+# Operating system files
+.DS_Store
+.DS_Store?
+/.SESIONS
+/.DS_Store:0
+
+# macOS
+.AppleDouble
+.LSQuarantine
+__MACOSX
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.code-workspace
+
+# OS-specific - Windows
+Thumbs.db
+Cache/
+*.tmp
+
+# Documentação gerada (HTML/PDF compilados a partir do Markdown)
+EBOOK-*.html
+EBOOK-*.pdf
