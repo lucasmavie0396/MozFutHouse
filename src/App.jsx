@@ -304,6 +304,16 @@ export default function MozFutHouse() {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    const cfg = (config && config[0]) || {};
+    const logo = cfg.logo || '';
+    const link = document.getElementById('mzf-favicon');
+    if (link) {
+      if (logo) link.href = logo;
+      else link.href = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 64 64\'%3E%3Crect width=\'64\' height=\'64\' rx=\'14\' fill=\'%230B1220\'/%3E%3Ctext x=\'32\' y=\'46\' font-family=\'Arial,sans-serif\' font-size=\'36\' font-weight=\'bold\' text-anchor=\'middle\' fill=\'%23F2B807\'%3EM%3C/text%3E%3C/svg%3E';
+    }
+  }, [config]);
+
   function updateTeams(next) { const removed = (dataRef.current.teams || []).filter(x => !next.some(y => y.id === x.id)).map(x => x.id); setTeams(next); persist('teams', next); pushWrite('teams', next, removed); }
   function updatePlayers(next) { const removed = (dataRef.current.players || []).filter(x => !next.some(y => y.id === x.id)).map(x => x.id); setPlayers(next); persist('players', next); pushWrite('players', next, removed); }
   function updateMatches(next) { const removed = (dataRef.current.matches || []).filter(x => !next.some(y => y.id === x.id)).map(x => x.id); setMatches(next); persist('matches', next); pushWrite('matches', next, removed); }
