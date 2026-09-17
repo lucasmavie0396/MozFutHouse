@@ -668,6 +668,7 @@ export default function MozFutHouse() {
     { id: 'calendario', label: 'Calendário', icon: CalendarDays },
     { id: 'resultados', label: 'Resultados', icon: Settings },
     { id: 'artilharia', label: 'Artilharia', icon: Target },
+    { id: 'classificacao', label: 'Classificação', icon: ListOrdered },
     { id: 'estatisticas', label: 'Melhor Jogador', icon: Star },
     { id: 'campeonatos', label: 'Campeonatos', icon: Trophy },
   ];
@@ -819,7 +820,7 @@ export default function MozFutHouse() {
               {tab === 'artilharia' && <Artilharia artilheiros={artilheiros} activeChamp={activeChamp} />}
               {tab === 'estatisticas' && <Estatisticas stats={statsJogadores} activeChamp={activeChamp} />}
               {tab === 'campeonatos' && (isAdmin || isAssociacao) && (
-                <Campeonatos championships={championships} teams={teams} standings={standings} updateChampionships={updateChampionships}
+                <Campeonatos championships={championships} teams={teams} matches={matches} standings={standings} updateChampionships={updateChampionships}
                   updateTeams={updateTeams} activeChampId={activeChamp ? activeChamp.id : ''} onSelect={selectChamp} champNivel={champNivel}
                   currentUser={currentUser} isAdmin={isAdmin} isAssociacao={isAssociacao} />
               )}
@@ -2770,7 +2771,7 @@ function ChampBanner({ championships, activeChamp, selChampId, onSelect, champNi
   );
 }
 
-function Campeonatos({ championships, teams, standings, updateChampionships, updateTeams, activeChampId, onSelect, champNivel, currentUser = {}, isAdmin = false, isAssociacao = false }) {
+function Campeonatos({ championships, teams, matches, standings, updateChampionships, updateTeams, activeChampId, onSelect, champNivel, currentUser = {}, isAdmin = false, isAssociacao = false }) {
   const ask = useConfirm();
   const [nome, setNome] = useState('');
   const [ano, setAno] = useState(String(new Date().getFullYear()));
@@ -2781,7 +2782,30 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
   const [addPick, setAddPick] = useState({});
   const [apurarPick, setApurarPick] = useState({});
 
-  const timesDoChamp = (c) => teams.filter(t => (t.champIds || []).includes(c.id));
+  const champsVisiveis = isAssociacao ? championships.filter(c => c.id === currentUser.champId) : championships;
+
+  const rankingDo = (c) => {
+    const table = {};
+    teams.filter(t => (t.champIds || []).includes(c.id)).forEach(t => {
+      table[t.id] = { teamId: t.id, nome: t.name, pts: 0, j: 0 };
+    });
+    matches.filter(m => m.champId === c.id && m.status === 'realizado').forEach(m => {
+      const a = table[m.mandante], b = table[m.visitante];
+      if (!a || !b) return;
+      a.j++; b.j++;
+      const ga = m.golsMandante || 0, gb = m.golsVisitante || 0;
+      if (ga > gb) { a.pts += 3; } else if (ga < gb) { b.pts += 3; } else { a.pts += 1; b.pts += 1; }
+    });
+    return Object.values(table).sort((x, y) => y.pts - x.pts || x.nome.localeCompare(y.nome));
+  };
+
+  const timesDoChamp = (c) => {
+    const ranked = rankingDo(c).map(r => r.teamId);
+    return teams
+      .filter(t => (t.champIds || []).includes(c.id))
+      .map(t => { const p = ranked.indexOf(t.id); return { ...t, clPos: p === -1 ? 999 : p + 1 }; })
+      .sort((a, b) => a.clPos - b.clPos || a.name.localeCompare(b.name));
+  };
   const nomeChamp = (id) => (championships.find(x => x.id === id) || {}).nome || 'Campeonato apagado';
 
   function criar() {
@@ -2892,7 +2916,7 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
         </div>
       )}
 
-      {championships.length === 0 ? <div className="fx-panel"><div className="fx-empty">Nenhum campeonato criado. Crie o primeiro acima.</div></div> : championships.map(c => {
+      {champsVisiveis.length === 0 ? <div className="fx-panel"><div className="fx-empty">{isAssociacao ? 'A sua conta não tem um campeonato associado.' : 'Nenhum campeonato criado. Crie o primeiro acima.'}</div></div> : champsVisiveis.map(c => {
         const times = timesDoChamp(c);
         const restantes = teams.filter(t => !(t.champIds || []).includes(c.id));
         const ehNacional = c.nivel === 'nacional';
@@ -2943,7 +2967,7 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
 
             <div className="fx-champbody">
               <div>
-                <div className="fx-sub" style={{ marginBottom: 8 }}>Equipas do campeonato ({times.length})</div>
+                <div className="fx-sub" style={{ marginBottom: 8 }}>Equipas do campeonato ({times.length}) — por classificação</div>
                 {times.length === 0 ? (
                   <div className="fx-empty">Ainda sem equipas associadas</div>
                 ) : (
@@ -2951,6 +2975,7 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
                     {times.map(t => (
                       <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '4px 6px', borderRadius: 6 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                          <span className="fx-tag" style={{ minWidth: 26, textAlign: 'center' }}>{t.clPos >= 999 ? '—' : t.clPos}º</span>
                           <Avatar src={t.foto} size={24} shape="square" fallbackColor={t.cor} initials={t.name.slice(0, 2).toUpperCase()} />
                           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
                           <span style={{ color: 'var(--ink-dim)', fontSize: '0.78rem' }}>({t.cidade || 'sem cidade'})</span>
@@ -3027,6 +3052,7 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
                           return (
                             <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6, cursor: 'pointer', background: confirmada ? 'rgba(63,163,77,0.08)' : 'transparent' }}>
                               <input type="checkbox" checked={marcada} onChange={e => setApurarPick(p => ({ ...p, [c.id]: e.target.checked ? [...new Set([...(p[c.id] || propostas.map(x => x.teamId)), t.id])] : (p[c.id] || propostas.map(x => x.teamId)).filter(id => id !== t.id) }))} disabled={confirmada} />
+                              <span className="fx-tag" style={{ minWidth: 22, textAlign: 'center' }}>{t.clPos >= 999 ? '—' : t.clPos}º</span>
                               <Avatar src={t.foto} size={22} shape="square" fallbackColor={t.cor} initials={t.name.slice(0, 2).toUpperCase()} />
                               <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
                               {confirmada ? <span className="fx-tag" style={{ background: 'rgba(63,163,77,0.15)', color: '#2e7d32', fontWeight: 600 }}>Confirmada</span> : null}
