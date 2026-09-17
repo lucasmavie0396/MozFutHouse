@@ -71,6 +71,7 @@ table.fx-table td.num, table.fx-table th.num { text-align: center; font-variant-
 .fx-btn-danger { border-color: var(--loss); color: var(--loss); }
 .fx-btn-danger:hover { background: rgba(214, 69, 69, 0.1); }
 .fx-btn-icon { padding: 6px 8px; }
+.fx-btn-sm { padding: 3px 8px; font-size: 0.76rem; gap: 4px; }
 .fx-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .fx-input, .fx-select { background: var(--panel2); border: 1px solid var(--line); color: var(--ink); padding: 8px 10px; font-size: 0.87rem; font-family: 'Inter', sans-serif; }
@@ -98,6 +99,7 @@ table.fx-table td.num, table.fx-table th.num { text-align: center; font-variant-
 .fx-tag { font-size: 0.68rem; padding: 1px 6px; border: 1px solid var(--line); color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.03em; }
 .fx-tag.y { color: var(--accent); border-color: var(--accent); }
 .fx-tag.r { color: var(--loss); border-color: var(--loss); }
+.fx-tag.inter { color: var(--accent); border-color: var(--accent); }
 .fx-tag.mvp { color: #B8860B; border-color: #D4AF37; background: rgba(212, 175, 55, 0.1); font-weight: 600; }
 
 .fx-overlay { position: fixed; inset: 0; background: rgba(11, 18, 32, 0.86); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 20px; }

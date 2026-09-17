@@ -4,7 +4,7 @@ import {
   Home, Users, User, CalendarDays, ListOrdered, Target, Star,
   Settings, Plus, Trash2, Pencil, X, Check, ShieldCheck,
   LogIn, LogOut, KeyRound, UserPlus, Mail, Shield,
-  AlertTriangle, Upload, FileJson, RefreshCw, Tv, Trophy, Megaphone, Menu, Save, UserCog, Lock, FileSpreadsheet, Volume2, VolumeX, BarChart3, Eye
+  AlertTriangle, Upload, FileJson, RefreshCw, Tv, Trophy, Megaphone, Menu, Save, UserCog, Lock, FileSpreadsheet, Volume2, VolumeX, BarChart3, Eye, Clock, Play, Pause, TimerReset, Send, CheckCheck
 } from 'lucide-react';
 import { connectSync, subscribe, pushWrite, recoveryRequest } from './lib/sync.js';
 
@@ -35,6 +35,29 @@ function diaLocal(d = new Date()) {
   const dd = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${dd}`;
 }
+
+function relSeg(match) {
+  const r = (match && match.relogio) || {};
+  const base = Number(r.acumulado || 0);
+  if (r.estado === 'jogo' && r.inicio) {
+    return Math.round(base + (Date.now() - new Date(r.inicio).getTime()) / 1000);
+  }
+  return Math.round(base);
+}
+
+function fmtTempo(totalSeg) {
+  const s = Math.max(0, Math.floor(totalSeg || 0));
+  const mm = String(Math.floor(s / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return `${mm}:${ss}`;
+}
+
+const REL_STATES = {
+  pre: { l: 'Pré-jogo', cl: '' },
+  jogo: { l: '1º tempo', cl: '' },
+  intervalo: { l: 'Intervalo', cl: 'inter' },
+  pausa: { l: 'Tempo parado', cl: 'r' },
+};
 
 class Boundary extends Component {
   constructor(props) {
@@ -646,6 +669,7 @@ export default function MozFutHouse() {
     { id: 'resultados', label: 'Resultados', icon: Settings },
     { id: 'artilharia', label: 'Artilharia', icon: Target },
     { id: 'estatisticas', label: 'Melhor Jogador', icon: Star },
+    { id: 'campeonatos', label: 'Campeonatos', icon: Trophy },
   ];
   const NAV_CLUBE = [
     { id: 'inicio', label: 'Início', icon: Home },
@@ -794,9 +818,10 @@ export default function MozFutHouse() {
               {tab === 'classificacao' && <Classificacao standings={standings} />}
               {tab === 'artilharia' && <Artilharia artilheiros={artilheiros} activeChamp={activeChamp} />}
               {tab === 'estatisticas' && <Estatisticas stats={statsJogadores} activeChamp={activeChamp} />}
-              {tab === 'campeonatos' && isAdmin && (
+              {tab === 'campeonatos' && (isAdmin || isAssociacao) && (
                 <Campeonatos championships={championships} teams={teams} standings={standings} updateChampionships={updateChampionships}
-                  updateTeams={updateTeams} activeChampId={activeChamp ? activeChamp.id : ''} onSelect={selectChamp} champNivel={champNivel} />
+                  updateTeams={updateTeams} activeChampId={activeChamp ? activeChamp.id : ''} onSelect={selectChamp} champNivel={champNivel}
+                  currentUser={currentUser} isAdmin={isAdmin} isAssociacao={isAssociacao} />
               )}
               {tab === 'exportar' && isAdmin && (
                 <Exportar championships={championships} teams={teams} players={players} matches={matches} teamName={teamName} />
@@ -1561,6 +1586,7 @@ function Inicio({ teams, players, matches, standings, artilheiros, destaque, pro
                   <button key={m.id} type="button" className="fx-prox-item" onClick={() => setVerConv(m.id)} title="Ver convocados e escalação">
                     <div className="fx-prox-teams">{teamName(m.mandante)} <span className="fx-prox-vs">×</span> {teamName(m.visitante)}</div>
                     <div className="fx-prox-meta">Rodada {m.rodada} · {m.data} {m.hora || ''} · {m.local || 'local a definir'}</div>
+                    {m.relogio && m.relogio.estado && m.relogio.estado !== 'pre' && m.status !== 'realizado' && <div className="fx-prox-relogio"><RelogioJogo match={m} gestao={false} onChange={() => {}} /></div>}
                     <div className="fx-prox-cta"><Users size={13} /> {temConv ? 'convocados e escalação' : 'definir escalação'}</div>
                   </button>
                 );
@@ -1918,6 +1944,47 @@ const CONV_STATUS = [
   { v: 'suspV', l: 'Suspenso (vermelho direto)' },
 ];
 
+function RelogioJogo({ match, gestao, onChange }) {
+  const [agora, setAgora] = useState(Date.now());
+  const r = (match && match.relogio) || {};
+  const estado = REL_STATES[r.estado] ? r.estado : 'pre';
+  const eh2 = (r.parte || 1) === 2;
+  const label = estado === 'jogo' ? (eh2 ? '2º tempo' : '1º tempo') : REL_STATES[estado].l;
+  useEffect(() => {
+    if (estado !== 'jogo') return;
+    const id = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [estado]);
+  const propsAtual = { ...(match && match.relogio), acumulado: relSeg(match) };
+  const setR = (props) => onChange({ ...(match && match.relogio), ...props });
+  const comecar = () => setR({ estado: 'jogo', inicio: new Date().toISOString(), acumulado: 0, parte: (r.parte || 1) });
+  const continuar = () => setR({ estado: 'jogo', inicio: new Date().toISOString(), acumulado: relSeg(match), parte: (r.parte || 1) });
+  const parar = () => setR({ estado: 'pausa', inicio: null, acumulado: relSeg(match) });
+  const intervalo = () => setR({ estado: 'intervalo', inicio: null, acumulado: relSeg(match) });
+
+  return (
+    <span className="fx-relogio" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <span className={'fx-tag ' + (REL_STATES[estado] ? REL_STATES[estado].cl : '')} style={{ ...(estado === 'jogo' ? { color: 'var(--win)', borderColor: 'var(--win)' } : {}) }}>
+        <Clock size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />{label} · <strong>{fmtTempo(relSeg(match))}</strong>
+      </span>
+      {gestao && estado !== 'realizado' && (
+        <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+          {(estado === 'pre') && <button className="fx-btn fx-btn-primary fx-btn-sm" onClick={comecar}><Play size={12} /> Começar jogo</button>}
+          {estado === 'jogo' && <>
+            <button className="fx-btn fx-btn-sm" onClick={parar}><Pause size={12} /> Parar tempo</button>
+            <button className="fx-btn fx-btn-sm" onClick={intervalo}><TimerReset size={12} /> Intervalo</button>
+          </>}
+          {estado === 'pausa' && <>
+            <button className="fx-btn fx-btn-primary fx-btn-sm" onClick={continuar}><Play size={12} /> Continuar</button>
+            <button className="fx-btn fx-btn-sm" onClick={intervalo}><TimerReset size={12} /> Intervalo</button>
+          </>}
+          {estado === 'intervalo' && <button className="fx-btn fx-btn-primary fx-btn-sm" onClick={() => setR({ estado: 'jogo', inicio: new Date().toISOString(), acumulado: relSeg(match), parte: 2 })}><Play size={12} /> Começar 2º tempo</button>}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function EscalacaoModal({ match, players, matches, teamName, editable, myTeamId, onSave, onClose, convPapel = 'outro' }) {
   const podeEditar = editable && match.status !== 'realizado';
   const [draft, setDraft] = useState(() => {
@@ -2061,6 +2128,10 @@ function Calendario({ teams, players, matches, updateMatches, teamName, teamColo
   });
   const rodadas = Object.keys(porRodada).map(Number).filter(r => Array.isArray(porRodada[r])).sort((a, b) => a - b);
 
+  function setRelogio(m, relogio) {
+    updateMatches(matches.map(x => x.id === m.id ? { ...x, relogio } : x));
+  }
+
   return (
     <div>
       <div className="fx-top">
@@ -2123,6 +2194,8 @@ function Calendario({ teams, players, matches, updateMatches, teamName, teamColo
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span className={'fx-status ' + m.status}>{m.wo ? 'W.O.' : (m.status === 'realizado' ? 'Realizado' : 'Agendado')}</span>
                   {m.streamUrl && (m.streamOn && m.status !== 'realizado' ? <span className="fx-live"><span className="fx-live-dot" /> AO VIVO</span> : <span className="fx-tag">Transmissão</span>)}
+                  {!gestaoOps && m.relogio && m.relogio.estado && m.relogio.estado !== 'pre' && m.status !== 'realizado' && <RelogioJogo match={m} gestao={false} onChange={() => {}} />}
+                  {gestaoOps && m.status !== 'realizado' && <RelogioJogo match={m} gestao onChange={(relogio) => setRelogio(m, relogio)} />}
                   {gestaoOps && m.status === 'agendado' && <button className="fx-btn" title="Adiar jogo (nova data e local)" onClick={() => { setAdiarId(m.id); setAdiarDraft({ data: m.data || '', hora: m.hora || '', local: m.local || '' }); }}><CalendarDays size={13} /> Adiar</button>}
                   {gestaoOps && m.status === 'agendado' && <button className="fx-btn" title="Falta de comparecência — a equipa presente vence por 6–0" onClick={() => setWoId(m.id)}><AlertTriangle size={13} /> W.O.</button>}
 {gestao && <button className="fx-btn fx-btn-icon" title="Definir transmissão" onClick={() => { setStreamEditId(m.id); setStreamDraft({ streamUrl: m.streamUrl || '', streamOn: !!m.streamOn }); }}><Pencil size={13} /></button>}
@@ -2474,7 +2547,8 @@ function Transmissoes({ matches, teamName, teamColor, teamFoto, updateMatches, g
             <h2 className="fx-panel-title" style={{ margin: 0, border: 'none', padding: 0 }}>
               <span className="fx-livebar-score">{teamName(watch.mandante)} <strong>{watch.status === 'realizado' ? `${watch.golsMandante} – ${watch.golsVisitante}` : 'vs'}</strong> {teamName(watch.visitante)}</span>
             </h2>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {watch.relogio && watch.status !== 'realizado' && <RelogioJogo match={watch} gestao={false} onChange={() => {}} />}
               {watch.streamOn && watch.status !== 'realizado' && <span className="fx-live"><span className="fx-live-dot" /> AO VIVO</span>}
               <button className="fx-btn" onClick={() => setWatchId(null)}><X size={14} /> Voltar à lista</button>
             </div>
@@ -2544,6 +2618,7 @@ function Transmissoes({ matches, teamName, teamColor, teamFoto, updateMatches, g
                   <div className="fx-livefoot">
                     <span>{m.wo ? 'W.O.' : (m.status === 'realizado' ? 'Realizado' : 'Agendado')} · Rodada {m.rodada} · {m.data} {m.hora || ''}</span>
                     <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {m.relogio && m.status !== 'realizado' && <RelogioJogo match={m} gestao={false} onChange={() => {}} />}
                       {temLink && <span className="fx-tag">Transmissão</span>}
                       {temLink && <button className="fx-btn fx-btn-primary" onClick={() => { setWatchId(m.id); if (onAssistir) onAssistir(m.id); }}><Tv size={15} /> Ver transmissão</button>}
                       {gestao && <button className="fx-btn" onClick={() => { setLinkEditId(m.id); setLinkDraft({ streamUrl: m.streamUrl || '', streamOn: !!m.streamOn }); }}><Pencil size={13} /> {temLink ? 'Editar link' : 'Colocar link'}</button>}
@@ -2695,7 +2770,7 @@ function ChampBanner({ championships, activeChamp, selChampId, onSelect, champNi
   );
 }
 
-function Campeonatos({ championships, teams, standings, updateChampionships, updateTeams, activeChampId, onSelect, champNivel }) {
+function Campeonatos({ championships, teams, standings, updateChampionships, updateTeams, activeChampId, onSelect, champNivel, currentUser = {}, isAdmin = false, isAssociacao = false }) {
   const ask = useConfirm();
   const [nome, setNome] = useState('');
   const [ano, setAno] = useState(String(new Date().getFullYear()));
@@ -2704,6 +2779,7 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
   const [editId, setEditId] = useState(null);
   const [editVagas, setEditVagas] = useState('2');
   const [addPick, setAddPick] = useState({});
+  const [apurarPick, setApurarPick] = useState({});
 
   const timesDoChamp = (c) => teams.filter(t => (t.champIds || []).includes(c.id));
   const nomeChamp = (id) => (championships.find(x => x.id === id) || {}).nome || 'Campeonato apagado';
@@ -2740,18 +2816,54 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
     }));
   }
 
-  async function apurar(c) {
-    const alvo = championships.find(x => x.nivel === 'nacional');
-    if (!alvo) { setMensagem('Crie primeiro um campeonato de tipo Nacional.'); return; }
-    const vagas = Number(editId === c.id ? editVagas : (c.vagas || 2)) || 2;
-    const ids = timesDoChamp(c).map(t => t.id);
-    const top = standings.filter(r => ids.includes(r.teamId)).slice(0, vagas);
-    if (!top.length) { setMensagem('Este campeonato ainda não tem classificação para apurar equipas.'); return; }
-    const nomes = top.map(r => r.nome).join(', ');
-    if (!(await ask({ title: 'Apurar para o Nacional', message: `Apuram ${top.length} equipa(s) de "${c.nome}" para "${alvo.nome}": ${nomes}. Continuar?`, confirmLabel: 'Apurar' }))) return;
-    updateTeams(teams.map(t => top.some(r => r.teamId === t.id) ? { ...t, champIds: [...new Set([...(t.champIds || []), alvo.id])] } : t));
-    updateChampionships(championships.map(x => x.id === alvo.id ? { ...x, apuracoes: [...(x.apuracoes || []), ...top.map(r => ({ teamId: r.teamId, champId: c.id, data: new Date().toISOString() }))] } : x));
-    setMensagem(`${top.length} equipa(s) de "${c.nome}" apurada(s) para "${alvo.nome}".`);
+  const nacional = championships.find(x => x.nivel === 'nacional');
+
+  async function propor(c) {
+    const escolhidas = apurarPick[c.id] || [];
+    const novas = escolhidas.filter(id => !(c.apuradas || []).some(a => a.teamId === id));
+    if (!novas.length && !(c.apuradas || []).some(a => !a.confirmado)) { setMensagem('Assinale pelo menos uma equipe para apurar.'); return; }
+    const nomes = timesDoChamp(c).filter(t => escolhidas.includes(t.id)).map(t => t.name).join(', ');
+    if (!(await ask({ title: 'Proposta de apuramento', message: `Propor ${escolhidas.length} equipe(s) de "${c.nome}" para o Nacional: ${nomes}. A proposta aguarda confirmação do Administrador.`, confirmLabel: 'Propor' }))) return;
+    updateChampionships(championships.map(x => x.id === c.id ? {
+      ...x,
+      apuradas: (x.apuradas || [])
+        .filter(a => a.confirmado || escolhidas.includes(a.teamId))
+        .map(a => escolhidas.includes(a.teamId) ? (a.confirmado ? a : { ...a, confirmado: false }) : a)
+        .concat(novas.map(teamId => ({ teamId, por: currentUser.nome || currentUser.role || '—', data: new Date().toISOString(), confirmado: false })))
+    } : x));
+    setApurarPick(p => ({ ...p, [c.id]: [] }));
+    setMensagem(`Proposta de ${escolhidas.length} equipe(s) registada. O Administrador confirmará o apuramento.`);
+  }
+
+  async function confirmar(c) {
+    if (!nacional) {
+      if (!(await ask({ title: 'Criar campeonato Nacional', message: `Para confirmar o apuramento de "${c.nome}" é necessário o campeonato Nacional. Criar automaticamente o "Campeonato Nacional"?`, confirmLabel: 'Criar e confirmar' }))) return;
+      const apuracoes = (c.apuradas || []).filter(a => a.confirmado === false || a.confirmado === undefined).map(a => ({ teamId: a.teamId, champId: c.id, por: a.por, confirmadoPor: currentUser.nome || 'Administrador', data: new Date().toISOString() }));
+      const novo = { id: uid('champ'), nome: 'Campeonato Nacional', ano: c.ano, nivel: 'nacional', vagas: 2, apuracoes, criadoEm: new Date().toISOString(), geradoAuto: true };
+      updateChampionships([...championships.map(x => x.id === c.id ? { ...x, apuradas: (x.apuradas || []).map(a => ({ ...a, confirmado: true })) } : x), novo]);
+      updateTeams(teams.map(t => apuracoes.some(a => a.teamId === t.id) ? { ...t, champIds: [...new Set([...(t.champIds || []), novo.id])] } : t));
+      onSelect(novo.id);
+      setMensagem(`Campeonato Nacional criado automaticamente com ${apuracoes.length} equipe(s) apurada(s).`);
+      return;
+    }
+    const apuracoes = (c.apuradas || []).filter(a => a.confirmado === false || a.confirmado === undefined).map(a => ({ teamId: a.teamId, champId: c.id, por: a.por, confirmadoPor: currentUser.nome || 'Administrador', data: new Date().toISOString() }));
+    if (!apuracoes.length) { setMensagem('Este campeonato já tem as apuradas confirmadas.'); return; }
+    if (!(await ask({ title: 'Confirmar apuramento', message: `Confirmar ${apuracoes.length} equipe(s) de "${c.nome}" para "${nacional.nome}": ${apuracoes.map(a => (teams.find(t => t.id === a.teamId) || {}).name || 'Equipa').join(', ')}?`, confirmLabel: 'Confirmar apuramento' }))) return;
+    const novas = apuracoes.filter(a => !(nacional.apuracoes || []).some(e => e.teamId === a.teamId));
+    updateChampionships(championships.map(x => {
+      if (x.id === c.id) return { ...x, apuradas: x.apuradas.map(a => ({ ...a, confirmado: true })) };
+      if (x.id === nacional.id) return { ...x, apuracoes: [...(x.apuracoes || []), ...novas] };
+      return x;
+    }));
+    updateTeams(teams.map(t => novas.some(a => a.teamId === t.id) ? { ...t, champIds: [...new Set([...(t.champIds || []), nacional.id])] } : t));
+    setMensagem(`${novas.length} equipe(s) confirmada(s) no "${nacional.nome}".`);
+  }
+
+  function removerConfirmada(c, teamId) {
+    updateChampionships(championships.map(x => {
+      if (x.id === c.id) return { ...x, apuracoes: (x.apuracoes || []).filter(a => a.teamId !== teamId), apuradas: (x.apuradas || []).map(a => a.teamId === teamId ? { ...a, confirmado: false } : a) };
+      return x;
+    }));
   }
 
   const cidades = [...new Set(teams.map(t => t.cidade || '').filter(Boolean))];
@@ -2759,31 +2871,36 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
   return (
     <div>
       <div className="fx-top">
-        <div><h1 className="fx-h1">Campeonatos</h1><div className="fx-sub">Nomeie os campeonatos, o ano e o tipo. Cada equipa fica associada ao(s) campeonato(s) onde joga — associe-a aqui, nas Equipes (filtro por campeonato) ou por cidade. O Nacional é isolado e recebe as equipas apuradas de cada campeonato.</div></div>
+        <div><h1 className="fx-h1">Campeonatos</h1><div className="fx-sub">A Associação propõe as equipes apuradas de cada campeonato para o Nacional; o Administrador confirma e o sistema gera automaticamente o campeonato Nacional.</div></div>
       </div>
 
       {mensagem && <div className="fx-ok" style={{ marginBottom: 12 }}>{mensagem}</div>}
 
-      <div className="fx-panel">
-        <h2 className="fx-panel-title">Criar campeonato</h2>
-        <div className="fx-form-row">
-          <div className="fx-field" style={{ flex: 2 }}><label>Nome</label><input className="fx-input" value={nome} onChange={e => setNome(e.target.value)} placeholder="Ex.: Campeonato Provincial de Maputo" /></div>
-          <div className="fx-field"><label>Ano</label><input type="number" min="2000" max="2100" className="fx-input" style={{ width: 90 }} value={ano} onChange={e => setAno(e.target.value)} /></div>
-          <div className="fx-field"><label>Tipo</label>
-            <select className="fx-select" value={nivel} onChange={e => setNivel(e.target.value)}>
-              {CHAMP_NIVEIS.map(n => <option key={n.id} value={n.id}>{n.label} — {n.desc}</option>)}
-            </select>
+      {isAdmin && (
+        <div className="fx-panel">
+          <h2 className="fx-panel-title">Criar campeonato</h2>
+          <div className="fx-form-row">
+            <div className="fx-field" style={{ flex: 2 }}><label>Nome</label><input className="fx-input" value={nome} onChange={e => setNome(e.target.value)} placeholder="Ex.: Campeonato Provincial de Maputo" /></div>
+            <div className="fx-field"><label>Ano</label><input type="number" min="2000" max="2100" className="fx-input" style={{ width: 90 }} value={ano} onChange={e => setAno(e.target.value)} /></div>
+            <div className="fx-field"><label>Tipo</label>
+              <select className="fx-select" value={nivel} onChange={e => setNivel(e.target.value)}>
+                {CHAMP_NIVEIS.map(n => <option key={n.id} value={n.id}>{n.label} — {n.desc}</option>)}
+              </select>
+            </div>
+            <button className="fx-btn fx-btn-primary" onClick={criar}><Plus size={15} /> Criar</button>
           </div>
-          <button className="fx-btn fx-btn-primary" onClick={criar}><Plus size={15} /> Criar</button>
         </div>
-      </div>
+      )}
 
       {championships.length === 0 ? <div className="fx-panel"><div className="fx-empty">Nenhum campeonato criado. Crie o primeiro acima.</div></div> : championships.map(c => {
         const times = timesDoChamp(c);
         const restantes = teams.filter(t => !(t.champIds || []).includes(c.id));
-        const top = standings.filter(r => times.some(t => t.id === r.teamId)).slice(0, Number(editId === c.id ? editVagas : (c.vagas || 2)) || 2);
         const ehNacional = c.nivel === 'nacional';
         const apuracoes = c.apuracoes || [];
+        const propostas = c.apuradas || [];
+        const confirmados = apuracoes.filter(a => a.champId === c.id);
+        const pendentes = propostas.filter(a => a.confirmado === false || a.confirmado === undefined);
+        const selecionadas = apurarPick[c.id] || propostas.map(a => a.teamId);
         return (
           <div className={'fx-champcard' + (ehNacional ? ' fx-champcard-isol' : '')} key={c.id}>
             <div className="fx-champhead">
@@ -2809,10 +2926,12 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
                   {times.length === 0 ? 'Ainda sem equipas associadas' : times.map(t => t.name).join(', ')}
                 </div>
               </div>
-              <div className="fx-champactions">
-                <button className="fx-btn fx-btn-icon" title="Editar" onClick={() => { setEditId(c.id); setNome(c.nome); setAno(c.ano); setEditVagas(String(c.vagas || 2)); }}><Pencil size={14} /></button>
-                <button className="fx-btn fx-btn-icon fx-btn-danger" title="Apagar" onClick={() => apagar(c)}><Trash2 size={14} /></button>
-              </div>
+              {isAdmin && (
+                  <div className="fx-champactions">
+                    <button className="fx-btn fx-btn-icon" title="Editar" onClick={() => { setEditId(c.id); setNome(c.nome); setAno(c.ano); setEditVagas(String(c.vagas || 2)); }}><Pencil size={14} /></button>
+                    <button className="fx-btn fx-btn-icon fx-btn-danger" title="Apagar" onClick={() => apagar(c)}><Trash2 size={14} /></button>
+                  </div>
+                )}
             </div>
 
             {editId === c.id && (
@@ -2836,12 +2955,12 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
                           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
                           <span style={{ color: 'var(--ink-dim)', fontSize: '0.78rem' }}>({t.cidade || 'sem cidade'})</span>
                         </div>
-                        <button className="fx-btn fx-btn-icon fx-btn-danger" title="Remover do campeonato" onClick={() => associarTime(c, t.id, false)}><X size={13} /></button>
+                        {isAdmin && <button className="fx-btn fx-btn-icon fx-btn-danger" title="Remover do campeonato" onClick={() => associarTime(c, t.id, false)}><X size={13} /></button>}
                       </div>
                     ))}
                   </div>
                 )}
-                <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                {isAdmin && (<div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                   {restantes.length > 0 && (
                     <>
                       <select className="fx-select" style={{ flex: 1, minWidth: 160 }} value={addPick[c.id] || ''} onChange={e => setAddPick(p => ({ ...p, [c.id]: e.target.value }))}>
@@ -2861,6 +2980,7 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
                     </div>
                   )}
                 </div>
+                )}
               </div>
 
               <div className="fx-champqa" style={{ minWidth: 200 }}>
@@ -2868,13 +2988,22 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
                   <>
                     <div className="fx-sub" style={{ marginBottom: 8 }}>Equipas apuradas para o Nacional</div>
                     {apuracoes.length === 0 ? (
-                      <div className="fx-note">Ainda não foram apuradas equipas. Use o botão «Apurar para o Nacional» dentro de cada campeonato.</div>
+                      <div className="fx-note">Ainda não há apuradas confirmadas. A Associação propõe e o Administrador confirma em cada campeonato; o Nacional é gerado automaticamente.</div>
                     ) : (
                       <ul className="fx-qa-list" style={{ listStyle: 'none', paddingLeft: 0 }}>
                         {apuracoes.map((a, i) => (
                           <li key={a.teamId + '_' + i} style={{ borderBottom: '1px solid var(--line)', padding: '4px 0' }}>
-                            <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{(teams.find(t => t.id === a.teamId) || {}).name || 'Equipa removida'}</span>
-                            <div className="fx-chipsub">apurada de {nomeChamp(a.champId)}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                              <div style={{ minWidth: 0 }}>
+                                <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{(teams.find(t => t.id === a.teamId) || {}).name || 'Equipa removida'}</span>
+                                <div className="fx-chipsub">apurada de {nomeChamp(a.champId)}</div>
+                              </div>
+                              {isAdmin && (
+                                <button className="fx-btn fx-btn-icon fx-btn-danger" title="Remover apuração" onClick={async () => {
+                                  if (await ask({ title: 'Remover apuração', message: `Remover "${(teams.find(t => t.id === a.teamId) || {}).name || 'equipa'}" do ${c.nome}? A equipe deixa de estar apurada e poderá ser republicada.`, danger: true, confirmLabel: 'Remover' })) removerConfirmada(c, a.teamId);
+                                }}><X size={13} /></button>
+                              )}
+                            </div>
                           </li>
                         ))}
                       </ul>
@@ -2883,15 +3012,40 @@ function Campeonatos({ championships, teams, standings, updateChampionships, upd
                 ) : (
                   <>
                     <div className="fx-sub" style={{ marginBottom: 8 }}>Apuramento para o Nacional</div>
-                    <div className="fx-note" style={{ marginBottom: 8 }}>
-                      As {editId === c.id ? (Number(editVagas) || 2) : (c.vagas || 2)} primeiras da classificação deste campeonato poderão ser apuradas:
-                    </div>
-                    {top.length === 0 ? <div className="fx-note">Coloque o placar de alguns jogos para aparecer a classificação.</div> : (
-                      <ol className="fx-qa-list">
-                        {top.map(r => <li key={r.teamId}>{r.nome} <strong style={{ color: 'var(--accent)' }}>{r.pts} pts</strong></li>)}
-                      </ol>
+                    {nacional ? (
+                      <div className="fx-note" style={{ marginBottom: 8 }}>Selecione as equipes deste campeonato que a Associação propõe apurar para <strong>{nacional.nome}</strong>.</div>
+                    ) : (
+                      <div className="fx-note" style={{ marginBottom: 8 }}>Use as vagas do Nacional em "Equipes do campeonato" — ainda não foi criado um campeonato Nacional; será gerado automaticamente na confirmação.</div>
                     )}
-                    <button className="fx-btn fx-btn-primary" style={{ marginTop: 10 }} onClick={() => apurar(c)}><Trophy size={14} /> Apurar para o Nacional</button>
+                    {times.length === 0 ? (
+                      <div className="fx-note">Associe equipes a este campeonato para poder apurá-las.</div>
+                    ) : (
+                      <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: 6 }}>
+                        {times.map(t => {
+                          const marcada = selecionadas.includes(t.id);
+                          const confirmada = confirmados.some(a => a.teamId === t.id);
+                          return (
+                            <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6, cursor: 'pointer', background: confirmada ? 'rgba(63,163,77,0.08)' : 'transparent' }}>
+                              <input type="checkbox" checked={marcada} onChange={e => setApurarPick(p => ({ ...p, [c.id]: e.target.checked ? [...new Set([...(p[c.id] || propostas.map(x => x.teamId)), t.id])] : (p[c.id] || propostas.map(x => x.teamId)).filter(id => id !== t.id) }))} disabled={confirmada} />
+                              <Avatar src={t.foto} size={22} shape="square" fallbackColor={t.cor} initials={t.name.slice(0, 2).toUpperCase()} />
+                              <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
+                              {confirmada ? <span className="fx-tag" style={{ background: 'rgba(63,163,77,0.15)', color: '#2e7d32', fontWeight: 600 }}>Confirmada</span> : null}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {(isAdmin || isAssociacao) && (
+                      <button className="fx-btn" style={{ marginTop: 10 }} onClick={() => propor(c)}><Send size={14} /> Propor apuramento</button>
+                    )}
+                    {isAdmin && pendentes.length > 0 && (
+                      <button className="fx-btn fx-btn-primary" style={{ marginTop: 6 }} onClick={() => confirmar(c)}><CheckCheck size={14} /> Confirmar {pendentes.length} apurada(s)</button>
+                    )}
+                    {confirmados.length > 0 && (
+                      <div className="fx-note" style={{ marginTop: 8, fontSize: '0.76rem' }}>
+                        <strong>{confirmados.length}</strong> já confirmadas no Nacional.
+                      </div>
+                    )}
                   </>
                 )}
               </div>
