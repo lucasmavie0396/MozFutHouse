@@ -742,7 +742,8 @@ export default function MozFutHouse() {
                 <Inicio teams={teams} players={players} matches={matchesVisiveis} standings={standings} artilheiros={artilheiros}
                   destaque={destaque} proximoJogo={proximoJogo} rodadaAtual={rodadaAtual} teamName={teamName} teamFoto={teamFoto} ads={ads}
                   updateMatches={updateMatches} gestao={gestaoConvocados}
-                  myTeamId={isClube ? (currentUser.teamId || '') : ''} />
+                  myTeamId={isClube ? (currentUser.teamId || '') : ''}
+                  convPapel={isAssociacao ? 'associacao' : isClube ? 'clube' : 'outro'} />
               )}
               {tab === 'equipes' && (
                 <Equipes teams={teams} players={players} matches={matches} updateTeams={updateTeams}
@@ -760,7 +761,8 @@ export default function MozFutHouse() {
                   teamColor={teamColor} teamFoto={teamFoto} gestao={gestaoCalendario}
                   gestaoConvocados2={gestaoConvocados}
                   championships={championships} activeChamp={activeChamp} onSelect={selectChamp} champNivel={champNivel}
-                  myTeamId={isClube ? (currentUser.teamId || '') : ''} gestaoOps={gestaoOps} />
+                  myTeamId={isClube ? (currentUser.teamId || '') : ''} gestaoOps={gestaoOps}
+                  convPapel={isAssociacao ? 'associacao' : isClube ? 'clube' : 'outro'} />
               )}
               {tab === 'resultados' && gestaoResultados && (
                 <Resultados teams={teams} players={players} matches={matches} updateMatches={updateMatches}
@@ -1513,7 +1515,7 @@ function AdsShow({ ads }) {
   );
 }
 
-function Inicio({ teams, players, matches, standings, artilheiros, destaque, proximoJogo, rodadaAtual, teamName, teamFoto, ads, updateMatches, gestao, myTeamId }) {
+function Inicio({ teams, players, matches, standings, artilheiros, destaque, proximoJogo, rodadaAtual, teamName, teamFoto, ads, updateMatches, gestao, myTeamId, convPapel = 'outro' }) {
   const jogados = matches.filter(m => m.status === 'realizado').length;
   const lider = standings[0];
   const [verConv, setVerConv] = useState(null);
@@ -1594,6 +1596,7 @@ function Inicio({ teams, players, matches, standings, artilheiros, destaque, pro
             teamName={teamName}
             editable={!!gestao}
             myTeamId={myTeamId}
+            convPapel={convPapel}
             onSave={(conv) => { updateMatches(matches.map(x => x.id === m.id ? { ...x, convocados: conv } : x)); setVerConv(null); }}
             onClose={() => setVerConv(null)}
           />
@@ -1905,7 +1908,7 @@ const CONV_STATUS = [
   { v: 'suspV', l: 'Suspenso (vermelho direto)' },
 ];
 
-function EscalacaoModal({ match, players, matches, teamName, editable, myTeamId, onSave, onClose }) {
+function EscalacaoModal({ match, players, matches, teamName, editable, myTeamId, onSave, onClose, convPapel = 'outro' }) {
   const podeEditar = editable && match.status !== 'realizado';
   const [draft, setDraft] = useState(() => {
     const base = {};
@@ -1913,9 +1916,15 @@ function EscalacaoModal({ match, players, matches, teamName, editable, myTeamId,
     return base;
   });
   const canEditTeam = (tId) => (myTeamId ? tId === myTeamId : true) && podeEditar;
+  const suspOriginal = (tId, pId) => {
+    const e = (match.convocados || {})[tId] || [];
+    const st = (e.find(x => x.jogadorId === pId) || {}).status;
+    return (st === 'suspA' || st === 'suspV') ? st : null;
+  };
   const teveVermelho = (pId) => matches.some(mx => mx.status === 'realizado' && (mx.eventos || []).some(e => e.jogadorId === pId && e.tipo === 'vermelho'));
   function setConv(tId, pId, status) {
     if (!podeEditar || (myTeamId && tId !== myTeamId)) return;
+    if (convPapel === 'clube' && suspOriginal(tId, pId)) return;
     setDraft(d => {
       const cur = (d[tId] || []).filter(x => x.jogadorId !== pId);
       const next = status === 'nao' ? cur : [...cur, { jogadorId: pId, status }];
@@ -1923,6 +1932,15 @@ function EscalacaoModal({ match, players, matches, teamName, editable, myTeamId,
     });
   }
   const stOf = (p, tId) => ((draft[tId] || []).find(x => x.jogadorId === p.id) || {}).status || 'nao';
+  const opcoes = convPapel === 'associacao'
+    ? [{ v: 'nao', l: 'Sem suspensão' }, { v: 'suspA', l: 'Suspenso (acumulação)' }, { v: 'suspV', l: 'Suspenso (vermelho direto)' }]
+    : convPapel === 'clube'
+      ? [{ v: 'nao', l: 'Não convocado' }, { v: 'titular', l: 'Titular' }, { v: 'banco', l: 'Suplente (banco)' }, { v: 'lesionado', l: 'Lesionado' }]
+      : [{ v: 'nao', l: 'Não convocado' }, ...CONV_STATUS];
+  const valorAssoc = (p, tId) => {
+    const s = stOf(p, tId);
+    return (s === 'suspA' || s === 'suspV') ? s : 'nao';
+  };
   return (
     <div className="fx-overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="fx-authbox fx-convbox">
@@ -1933,8 +1951,12 @@ function EscalacaoModal({ match, players, matches, teamName, editable, myTeamId,
             <div className="fx-auth-sub">{teamName(match.mandante)} × {teamName(match.visitante)} · {new Date(match.data + (match.hora ? 'T' + match.hora : '')).toLocaleDateString('pt-PT')} · rodada {match.rodada}</div>
           </div>
         </div>
+        {convPapel === 'associacao' && (
+          <div className="fx-note" style={{ marginBottom: 12 }}>A Associação apenas declara suspensões (acumulação ou vermelho direto). O clube não pode escalar um atleta declarado suspenso.</div>
+        )}
         {[match.mandante, match.visitante].map(tId => {
           const canEdit = canEditTeam(tId);
+          const roleEquipa = convPapel === 'clube' && !!myTeamId && tId === myTeamId;
           return (
           <div key={tId} style={{ marginBottom: 14 }}>
             <div className="fx-conv-team">{teamName(tId)}{myTeamId && tId === myTeamId && <span className="fx-tag" style={{ marginLeft: 6 }}>a minha equipa</span>}</div>
@@ -1942,16 +1964,20 @@ function EscalacaoModal({ match, players, matches, teamName, editable, myTeamId,
               <div className="fx-empty" style={{ padding: '6px 0' }}>Sem jogadores registados nesta equipe.</div>
             ) : players.filter(p => p.teamId === tId).map(p => {
               const st = stOf(p, tId);
+              const susp = suspOriginal(tId, p.id);
+              const bloqClube = convPapel === 'clube' && susp;
               return (
                 <div className="fx-conv-row" key={p.id}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {p.nome}
-                    {canEdit && teveVermelho(p.id) && <span className="fx-tag r" style={{ marginLeft: 6 }}>vermelho recente</span>}
+                    {canEdit && !bloqClube && convPapel !== 'associacao' && teveVermelho(p.id) && <span className="fx-tag r" style={{ marginLeft: 6 }}>vermelho recente</span>}
+                    {bloqClube && <span className="fx-tag r" style={{ marginLeft: 6 }}>suspenso pela Associação</span>}
                   </div>
-                  {canEdit ? (
-                    <select className="fx-select" value={st} onChange={e => setConv(tId, p.id, e.target.value)}>
-                      <option value="nao">Não convocado</option>
-                      {CONV_STATUS.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
+                  {bloqClube ? (
+                    <span className="fx-tag" style={{ color: '#E5484D' }}>{CONV_STATUS.find(x => x.v === susp)?.l || susp}</span>
+                  ) : canEdit ? (
+                    <select className="fx-select" value={convPapel === 'associacao' ? valorAssoc(p, tId) : st} onChange={e => setConv(tId, p.id, e.target.value)}>
+                      {opcoes.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
                     </select>
                   ) : (
                     <span className="fx-tag" style={{ color: st === 'nao' ? 'var(--ink-dim)' : undefined }}>{st === 'nao' ? 'Não convocado' : CONV_STATUS.find(x => x.v === st)?.l || st}</span>
@@ -1971,7 +1997,7 @@ function EscalacaoModal({ match, players, matches, teamName, editable, myTeamId,
   );
 }
 
-function Calendario({ teams, players, matches, updateMatches, teamName, teamColor, teamFoto, gestao, gestaoConvocados2, championships, activeChamp, onSelect, champNivel, myTeamId, gestaoOps }) {
+function Calendario({ teams, players, matches, updateMatches, teamName, teamColor, teamFoto, gestao, gestaoConvocados2, championships, activeChamp, onSelect, champNivel, myTeamId, gestaoOps, convPapel = 'outro' }) {
   const ask = useConfirm();
   const playerNome = (id) => (players.find(p => p.id === id) || {}).nome || '—';
   const [form, setForm] = useState({ rodada: 1, data: '', hora: '', local: '', mandante: '', visitante: '' });
@@ -2187,6 +2213,7 @@ function Calendario({ teams, players, matches, updateMatches, teamName, teamColo
             teamName={teamName}
             editable={!!gestaoConvocados2 && cm.status !== 'realizado'}
             myTeamId={myTeamId}
+            convPapel={convPapel}
             onSave={(conv) => { updateMatches(matches.map(x => x.id === cm.id ? { ...x, convocados: conv } : x)); setConvId(null); }}
             onClose={() => setConvId(null)}
           />
