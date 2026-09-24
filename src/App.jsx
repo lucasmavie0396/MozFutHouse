@@ -586,7 +586,7 @@ export default function MozFutHouse() {
 
   const artilheiros = useMemo(() => {
     const map = {};
-    matches.forEach(m => (m.eventos || []).filter(e => e.tipo === 'gol').forEach(e => {
+    matchesVisiveis.forEach(m => (m.eventos || []).filter(e => e.tipo === 'gol').forEach(e => {
       map[e.jogadorId] = (map[e.jogadorId] || 0) + 1;
     }));
     return Object.entries(map).map(([jogadorId, gols]) => {
@@ -1385,7 +1385,7 @@ function ControloPublico({ users, config, currentUser, updateUsers, logAcao, tog
     .filter(u => !filtro || u.nome.toLowerCase().includes(filtro.toLowerCase()) || u.email.toLowerCase().includes(filtro.toLowerCase()))
     .slice().sort((a, b) => (b.criadoEm || '').localeCompare(a.criadoEm || ''));
   const bloqueadas = publicos.filter(u => u.bloqueado).length;
-  const acoes = ((config && config[0] && config[0].acoes) || []).slice();
+  const acoes = ((config && config[0] && config[0].acoes) || []).slice().sort((a, b) => new Date(b.data) - new Date(a.data));
 
   async function confirmarRemocao(u) {
     if (u.id === currentUser?.id) return;
@@ -1497,7 +1497,8 @@ function AdsShow({ ads }) {
 
   if (!ativas.length) return null;
   const a = ativas[idx % ativas.length];
-  const isVideo = !!(a.video && a.video.trim());
+  const vid = adVideoSrc(a.video);
+  const isVideo = !!vid;
   const go = (d) => setIdx(i => (i + d + ativas.length) % ativas.length);
 
   return (
@@ -1508,24 +1509,39 @@ function AdsShow({ ads }) {
         <div className="fx-adslider-item">
           {isVideo ? (
             <div className="fx-adv">
-              <video
-                key={a.id}
-                src={a.video}
-                className="fx-adimg fx-advideo"
-                muted={mutedAll}
-                autoPlay
-                playsInline
-                preload="metadata"
-                onEnded={() => { if (currentId.current === a.id) goNext(); }}
-              />
-              <button
-                type="button"
-                className="fx-ads-mute"
-                title={mutedAll ? 'Ativar som' : 'Silenciar'}
-                onClick={() => setMutedAll(m => !m)}
-              >
-                {mutedAll ? <VolumeX size={16} /> : <Volume2 size={16} />}
-              </button>
+              {vid.tipo === 'embed' ? (
+                <iframe
+                  key={a.id}
+                  src={vid.src}
+                  className="fx-adimg fx-advideo"
+                  title={a.nome}
+                  allow="autoplay; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  referrerPolicy="no-referrer-when-downgrade"
+                  frameBorder="0"
+                />
+              ) : (
+                <video
+                  key={a.id}
+                  src={vid.src}
+                  className="fx-adimg fx-advideo"
+                  muted={mutedAll}
+                  autoPlay
+                  playsInline
+                  preload="metadata"
+                  onEnded={() => { if (currentId.current === a.id) goNext(); }}
+                />
+              )}
+              {vid.tipo === 'video' && (
+                <button
+                  type="button"
+                  className="fx-ads-mute"
+                  title={mutedAll ? 'Ativar som' : 'Silenciar'}
+                  onClick={() => setMutedAll(m => !m)}
+                >
+                  {mutedAll ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                </button>
+              )}
             </div>
           ) : (
             <a href={a.url} target="_blank" rel="noreferrer" title="Abrir site do parceiro" style={{ display: 'block', textDecoration: 'none' }}>
@@ -2524,6 +2540,20 @@ function embedUrl(url) {
   return u;
 }
 
+function adVideoSrc(url) {
+  if (!url) return null;
+  const u = String(url).trim();
+  if (!/^https?:\/\//i.test(u)) return null;
+  let m = u.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  if (m) return { tipo: 'embed', src: 'https://www.youtube.com/embed/' + m[1] + '?autoplay=1&mute=1&rel=0' };
+  m = u.match(/vimeo\.com\/(\d+)/);
+  if (m) return { tipo: 'embed', src: 'https://player.vimeo.com/video/' + m[1] + '?autoplay=1&muted=1' };
+  m = u.match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)/);
+  if (m) return { tipo: 'embed', src: 'https://drive.google.com/file/d/' + m[1] + '/preview' };
+  if (/\.(mp4|webm)(\?.*)?(#.*)?$/i.test(u)) return { tipo: 'video', src: u };
+  return null;
+}
+
 function Transmissoes({ matches, teamName, teamColor, teamFoto, updateMatches, gestao, activeChamp, championships, onSelect, champNivel, onAssistir }) {
   const [watchId, setWatchId] = useState(null);
   const [linkEditId, setLinkEditId] = useState(null);
@@ -3132,7 +3162,7 @@ function Publicidade({ ads, updateAds }) {
           <div className="fx-field"><label>Ordem</label><input type="number" min="1" className="fx-input" style={{ width: 70 }} value={form.ordem} onChange={e => setForm({ ...form, ordem: e.target.value })} /></div>
         </div>
         <ImageInput value={form.imagem} onChange={imagem => setForm({ ...form, imagem })} label="Imagem / banner do parceiro" shape="square" maxDim={360} quality={0.8} fallbackColor="#26314A" initials={(form.nome || 'AD').slice(0, 2).toUpperCase()} />
-        <div className="fx-field"><label>Vídeo curto (opcional — um clique nas obras muda para vídeo; máximo 1 minuto e 30 segundos; pode ser upload ou link .mp4/.webm)</label><input className="fx-input" value={form.video} onChange={e => setForm({ ...form, video: e.target.value })} placeholder="https://.../video.mp4" /></div>
+        <div className="fx-field"><label>Vídeo curto (opcional — aceita link do YouTube, Google Drive, Vimeo ou ficheiro .mp4/.webm; máximo ~1 min 30)</label><input className="fx-input" value={form.video} onChange={e => setForm({ ...form, video: e.target.value })} placeholder="https://youtube.com/watch?v=… ou https://…/video.mp4" /></div>
         <label className="fx-switch" style={{ marginTop: 12 }}>
           <input type="checkbox" checked={form.ativo} onChange={e => setForm({ ...form, ativo: e.target.checked })} />
           <span>Ativa (visível para o público)</span>
@@ -3173,8 +3203,8 @@ function Publicidade({ ads, updateAds }) {
             )}
             {editId === a.id && (
               <div className="fx-field" style={{ marginTop: 10 }}>
-                <label>Vídeo curto (máx. 1min30; deixe vazio para imagem)</label>
-                <input className="fx-input" value={editForm.video || ''} onChange={e => setEditForm({ ...editForm, video: e.target.value })} placeholder="https://.../video.mp4" style={{ marginBottom: 10 }} />
+                <label>Vídeo curto (YouTube, Google Drive, Vimeo ou .mp4/.webm; deixe vazio para imagem)</label>
+                <input className="fx-input" value={editForm.video || ''} onChange={e => setEditForm({ ...editForm, video: e.target.value })} placeholder="https://youtube.com/watch?v=… ou https://…/video.mp4" style={{ marginBottom: 10 }} />
                 <button className="fx-btn fx-btn-primary" onClick={saveEdit}><Check size={14} /> Guardar</button>
                 <button className="fx-btn" onClick={() => setEditId(null)}><X size={14} /> Cancelar</button>
               </div>

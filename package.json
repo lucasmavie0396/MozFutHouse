@@ -8,10 +8,17 @@
     "dev:web": "vite",
     "dev:sync": "node server/index.mjs",
     "build": "vite build",
+    "build:mobile": "vite build --mode capacitor",
     "preview": "vite preview",
+    "cap:add": "cap add android",
+    "cap:sync": "cap sync android",
+    "cap:build": "cap copy android && cd android && gradlew.bat assembleDebug",
     "start": "node server/index.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "better-sqlite3": "^13.0.3",
     "lucide-react": "^0.454.0",
     "nodemailer": "^10.0.10",

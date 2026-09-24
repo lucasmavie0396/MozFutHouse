@@ -1,10 +1,17 @@
 const SYNC_PORT = '3000';
+const SYNC_URL_OVERRIDE = import.meta.env.VITE_SYNC_URL || '';
+
+function isNativeApp() {
+  return typeof window !== 'undefined' && !!window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform();
+}
 
 function isLocalDev() {
+  if (isNativeApp()) return false;
   return ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname);
 }
 
 function resolveSyncUrl() {
+  if (SYNC_URL_OVERRIDE) return SYNC_URL_OVERRIDE;
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
   if (isLocalDev()) {
     return proto + '://' + window.location.hostname + ':' + SYNC_PORT;

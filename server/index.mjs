@@ -25,20 +25,22 @@ async function enviarEmailRecuperacao(to, code) {
   if (!process.env.MAIL_HOST) return false;
   let nodemailer;
   try { nodemailer = (await import('nodemailer')).default; } catch (e) { console.warn('nodemailer não instalado — a usar modo demonstração.'); return false; }
+  const admin = (store.app_users || []).find((u) => u.role === 'admin');
+  const remetente = (admin && admin.email) || process.env.MAIL_FROM || process.env.MAIL_USER;
+  const contaAuth = process.env.MAIL_USER || remetente;
   const port = Number(process.env.MAIL_PORT) || 587;
   const transporter = nodemailer.createTransport({
     host: process.env.MAIL_HOST,
     port,
     secure: process.env.MAIL_SECURE === 'true' || port === 465,
-    auth: process.env.MAIL_USER ? { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS || '' } : undefined,
+    auth: contaAuth && process.env.MAIL_PASS ? { user: contaAuth, pass: process.env.MAIL_PASS } : undefined,
   });
-  const admin = (store.app_users || []).find((u) => u.role === 'admin');
   await transporter.sendMail({
-    from: process.env.MAIL_FROM || (admin && admin.email) || process.env.MAIL_USER,
+    from: remetente,
     to,
     subject: 'MozFutHouse · Recuperação de password',
     text: `O seu código de recuperação é: ${code}`,
-    html: `<p>Olá,</p><p>Use o código abaixo para definir uma nova password na sua conta MozFutHouse:</p><p style="font-size:26px;font-weight:700;letter-spacing:4px">${code}</p><p>O código é válido por 15 minutos. Se não pediu esta recuperação, ignore este email.</p>`,
+    html: `<p>Olá,</p><p>Use o código abaixo para definir uma nova password na sua conta MozFutHouse:</p><p style="font-size:26px;font-weight:700;letter-spacing:4px">${code}</p><p>O código é válido por 15 minutos. Se não pediu esta recuperação, ignore este email.</p><p>Enviado por ${remetente}</p>`,
   });
   return true;
 }
@@ -73,6 +75,7 @@ const MIME = {
   '.mjs': 'text/javascript',
   '.css': 'text/css',
   '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
