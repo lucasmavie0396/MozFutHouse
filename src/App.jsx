@@ -4,7 +4,7 @@ import {
   Home, Users, User, CalendarDays, ListOrdered, Target, Star,
   Settings, Plus, Trash2, Pencil, X, Check, ShieldCheck,
   LogIn, LogOut, KeyRound, UserPlus, Mail, Shield,
-  AlertTriangle, Upload, FileJson, RefreshCw, Tv, Trophy, Megaphone, Menu, Save, UserCog, Lock, FileSpreadsheet, Volume2, VolumeX, BarChart3, Eye, Clock, Play, Pause, TimerReset, Send, CheckCheck
+  AlertTriangle, Upload, FileJson, RefreshCw, Tv, Trophy, Megaphone, Menu, Save, UserCog, Lock, FileSpreadsheet, Volume2, VolumeX, BarChart3, Eye, Clock, Play, Pause, TimerReset, Send, CheckCheck, Flag
 } from 'lucide-react';
 import { connectSync, subscribe, pushWrite, recoveryRequest } from './lib/sync.js';
 
@@ -346,10 +346,10 @@ export default function MozFutHouse() {
   function updateConfig(next) { setConfig(Array.isArray(next) ? next : []); persist('config', next); pushWrite('config', next); }
   function selectChamp(id) { setSelChampId(id); persist('champ_sel', id); }
 
-  function logAcao(tipo, info, atorOverride) {
+  function logAcao(tipo, info, atorOverride, extraConfig) {
     const cfg = (dataRef.current.config && dataRef.current.config[0]) || {};
     const acoes = Array.isArray(cfg.acoes) ? cfg.acoes.slice(0, 150) : [];
-    updateConfig([{ ...cfg, id: 'app', acoes: [{ id: uid('log'), tipo, atorNome: atorOverride || currentUser?.nome || 'Sistema', info, data: new Date().toISOString() }, ...acoes] }]);
+    updateConfig([{ ...cfg, ...(extraConfig || {}), id: 'app', acoes: [{ id: uid('log'), tipo, atorNome: atorOverride || currentUser?.nome || 'Sistema', info, data: new Date().toISOString() }, ...acoes] }]);
   }
 
   function registarAcesso() {
@@ -651,6 +651,7 @@ export default function MozFutHouse() {
     { id: 'transmissoes', label: 'Transmissões', icon: Tv },
     { id: 'classificacao', label: 'Classificação', icon: ListOrdered },
     { id: 'artilharia', label: 'Artilharia', icon: Target },
+    { id: 'selecao', label: 'Seleção Nacional', icon: Flag },
     { id: 'estatisticas', label: 'Melhor Jogador', icon: Star },
     { id: 'campeonatos', label: 'Campeonatos', icon: Trophy },
     { id: 'exportar', label: 'Exportar', icon: FileSpreadsheet },
@@ -689,6 +690,7 @@ export default function MozFutHouse() {
     { id: 'parceiros', label: 'Parceiros', icon: Megaphone },
     { id: 'classificacao', label: 'Classificação', icon: ListOrdered },
     { id: 'artilharia', label: 'Artilharia', icon: Target },
+    { id: 'selecao', label: 'Seleção Nacional', icon: Flag },
     { id: 'estatisticas', label: 'Melhor Jogador', icon: Star },
   ];
   const nav = isAdmin ? NAV_ADMIN : isGestor ? NAV_GESTOR : isAssociacao ? NAV_ASSOCIACAO : isClube ? NAV_CLUBE : (
@@ -818,6 +820,9 @@ export default function MozFutHouse() {
               )}
               {tab === 'classificacao' && <Classificacao standings={standings} />}
               {tab === 'artilharia' && <Artilharia artilheiros={artilheiros} activeChamp={activeChamp} />}
+              {tab === 'selecao' && <SelecaoNacional players={players} teams={teams} teamName={teamName} teamColor={teamColor}
+                championships={championships} config={config} updateConfig={updateConfig}
+                logAcao={isAdmin ? logAcao : null} edn={isAdmin} />}
               {tab === 'estatisticas' && <Estatisticas stats={statsJogadores} activeChamp={activeChamp} />}
               {tab === 'campeonatos' && (isAdmin || isAssociacao) && (
                 <Campeonatos championships={championships} teams={teams} matches={matches} standings={standings} updateChampionships={updateChampionships}
@@ -2735,6 +2740,87 @@ function Artilharia({ artilheiros, activeChamp }) {
         </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function SelecaoNacional({ players, teams, teamName, teamColor, championships, config, updateConfig, logAcao, edn }) {
+  const gestao = !!edn;
+  const [busca, setBusca] = useState('');
+  const cfg = (config && config[0]) || {};
+  const selNac = cfg.selecaoNacional || {};
+  const sel = Array.isArray(selNac.convocados) ? selNac.convocados : [];
+  const [convocados, setConvocados] = useState(sel);
+  useEffect(() => { setConvocados(Array.isArray(cfg.selecaoNacional && cfg.selecaoNacional.convocados) ? cfg.selecaoNacional.convocados : []); }, [cfg.selecaoNacional]);
+
+  const nacional = championships.find(c => c.nivel === 'nacional');
+  const teamIdsNac = nacional ? new Set(teams.filter(t => (t.champIds || []).includes(nacional.id)).map(t => t.id)) : null;
+  const elegiveis = players.filter(p => {
+    if (busca.trim() && !p.nome.toLowerCase().includes(busca.trim().toLowerCase())) return false;
+    if (teamIdsNac) return teamIdsNac.has(p.teamId);
+    return true;
+  }).sort((a, b) => a.nome.localeCompare(b.nome));
+  const convMap = new Map(players.map(p => [p.id, p]));
+  const listaConv = convocados.map(id => convMap.get(id)).filter(Boolean);
+
+  function guardar(ids) {
+    setConvocados(ids);
+    const selecaoNacional = { ...(cfg.selecaoNacional || {}), convocados: ids, atualizadoEm: new Date().toISOString() };
+    if (logAcao) logAcao('selecao', `Convocação da Seleção Nacional atualizada (${ids.length} jogador(es))`, undefined, { selecaoNacional });
+    else updateConfig([{ ...cfg, id: 'app', selecaoNacional }]);
+  }
+  function convocar(p) {
+    if (!convocados.includes(p.id)) guardar([...convocados, p.id]);
+  }
+  function dispensar(p) {
+    guardar(convocados.filter(id => id !== p.id));
+  }
+
+  return (
+    <div>
+      <div className="fx-top"><div><h1 className="fx-h1">Seleção Nacional</h1><div className="fx-sub">{nacional ? `Convocados para «${nacional.nome}» · ${listaConv.length} jogador(es)` : (teamIdsNac ? 'Convocados para a Seleção Nacional' : 'Crie o campeonato Nacional para gerir as convocações')}</div></div></div>
+
+      <div className="fx-panel">
+        <h2 className="fx-panel-title">Convocados ({listaConv.length})</h2>
+        {listaConv.length === 0 ? <div className="fx-empty">Nenhum jogador convocado ainda.</div> : (
+          <div className="fx-scroll">
+          <table className="fx-table">
+            <thead><tr><th>Jogador</th><th>Equipa</th>{gestao && <th></th>}</tr></thead>
+            <tbody>
+              {listaConv.map((p, i) => (
+                <tr key={p.id}>
+                  <td><div className="fx-namecell"><span className="fx-rank" style={{ minWidth: 20 }}>{i + 1}</span><Avatar src={p.foto} size={26} shape="circle" fallbackColor={teamColor(p.teamId)} initials={p.nome.slice(0, 2).toUpperCase()} />{p.nome}</div></td>
+                  <td><span className="fx-chip" style={{ background: teamColor(p.teamId) }} />{teamName(p.teamId)}</td>
+                  {gestao && <td><button className="fx-btn fx-btn-icon fx-btn-danger" onClick={() => dispensar(p)} title="Dispensar"><X size={14} /></button></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        )}
+      </div>
+
+      {gestao && (
+        <div className="fx-panel">
+          <h2 className="fx-panel-title">Convocar jogador</h2>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input className="fx-input" style={{ flex: 1, minWidth: 200 }} placeholder="Procurar jogador por nome…" value={busca} onChange={e => setBusca(e.target.value)} />
+            {nacional && <span className="fx-tag"><Flag size={12} /> Jogadores de equipas do Nacional</span>}
+          </div>
+          <div className="fx-scroll" style={{ maxHeight: 360 }}>
+            {elegiveis.length === 0 ? <div className="fx-empty">{busca.trim() ? 'Nenhum jogador corresponde à pesquisa.' : 'Nenhum jogador disponível.'}</div> : elegiveis.map(p => {
+              const ja = convocados.includes(p.id);
+              return (
+                <div className="fx-podium" key={p.id}>
+                  <Avatar src={p.foto} size={30} shape="circle" fallbackColor={teamColor(p.teamId)} initials={p.nome.slice(0, 2).toUpperCase()} />
+                  <div style={{ flex: 1 }}>{p.nome} <span style={{ color: 'var(--ink-dim)', fontSize: '0.82rem' }}>· {teamName(p.teamId)} · {p.posicao}</span></div>
+                  {ja ? <button className="fx-btn fx-btn-danger" onClick={() => dispensar(p)}><X size={13} /> Dispensar</button> : <button className="fx-btn fx-btn-primary" onClick={() => convocar(p)}><Plus size={13} /> Convocar</button>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
