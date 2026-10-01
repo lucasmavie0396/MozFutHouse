@@ -4,7 +4,7 @@ import {
   Home, Users, User, CalendarDays, ListOrdered, Target, Star,
   Settings, Plus, Trash2, Pencil, X, Check, ShieldCheck,
   LogIn, LogOut, KeyRound, UserPlus, Mail, Shield,
-  AlertTriangle, Upload, FileJson, RefreshCw, Tv, Trophy, Megaphone, Menu, Save, UserCog, Lock, FileSpreadsheet, Volume2, VolumeX, BarChart3, Eye, Clock, Play, Pause, TimerReset, Send, CheckCheck, Flag
+  AlertTriangle, Upload, FileJson, RefreshCw, Tv, Trophy, Megaphone, Menu, Save, UserCog, Lock, FileSpreadsheet, Volume2, VolumeX, BarChart3, Eye, Clock, Play, Pause, TimerReset, Send, CheckCheck, Flag, Copy
 } from 'lucide-react';
 import { connectSync, subscribe, pushWrite, recoveryRequest } from './lib/sync.js';
 
@@ -2745,22 +2745,36 @@ function Artilharia({ artilheiros, activeChamp }) {
   );
 }
 
+const CONV_TIPOS = { pre: 'Pré-convocatória', final: 'Convocatória final' };
+
+function convData(str) {
+  if (!str) return '—';
+  const d = new Date(String(str).length <= 10 ? String(str) + 'T00:00:00' : str);
+  return isNaN(d.getTime()) ? String(str) : d.toLocaleDateString('pt-PT');
+}
+
 function SelecaoNacional({ players, teams, teamName, teamColor, championships, config, updateConfig, logAcao, edn }) {
   const gestao = !!edn;
-  const [busca, setBusca] = useState('');
-  const [filtroChamp, setFiltroChamp] = useState('todos');
   const cfg = (config && config[0]) || {};
   const selNac = cfg.selecaoNacional || {};
-  const sel = Array.isArray(selNac.convocados) ? selNac.convocados : [];
-  const [convocados, setConvocados] = useState(sel);
-  const refConvocados = useRef(sel);
-  useEffect(() => {
-    const lista = Array.isArray(cfg.selecaoNacional && cfg.selecaoNacional.convocados) ? cfg.selecaoNacional.convocados : [];
-    refConvocados.current = lista;
-    setConvocados(lista);
-  }, [cfg.selecaoNacional]);
+  const listaAntiga = Array.isArray(selNac.convocados) ? selNac.convocados : [];
 
-  const nacional = championships.find(c => c.nivel === 'nacional');
+  const registros = useMemo(() => {
+    if (Array.isArray(selNac.convocatorias) && selNac.convocatorias.length) return selNac.convocatorias;
+    if (listaAntiga.length) {
+      return [{ id: 'conv_legado', tipo: 'pre', champId: '', dataConvocatoria: '', dataEvento: '', prazoConfirmacao: '', observacoes: 'Lista inicial', convocados: listaAntiga, legado: true }];
+    }
+    return [];
+  }, [selNac, listaAntiga]);
+  const temLegado = (!Array.isArray(selNac.convocatorias) || !selNac.convocatorias.length) && listaAntiga.length > 0;
+
+  const [filtroTipo, setFiltroTipo] = useState('todos');
+  const [filtroChamp, setFiltroChamp] = useState('todos');
+  const [editId, setEditId] = useState('');
+  const [form, setForm] = useState(null);
+  const [alvo, setAlvo] = useState('');
+  const [busca, setBusca] = useState('');
+
   const champsDe = useMemo(() => {
     const m = new Map();
     teams.forEach(t => (t.champIds || []).forEach(id => {
@@ -2769,45 +2783,125 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
     }));
     return m;
   }, [teams]);
-  const noFiltro = filtroChamp !== 'todos' && championships.some(c => c.id === filtroChamp);
-  const champDoFiltro = noFiltro ? championships.find(c => c.id === filtroChamp) : null;
-  const teamIdsFiltro = noFiltro ? (champsDe.get(filtroChamp) || new Set()) : null;
-  const teamIdsNac = nacional ? (champsDe.get(nacional.id) || new Set()) : null;
+  const convMap = useMemo(() => new Map(players.map(p => [p.id, p])), [players]);
+  const champNome = (id) => { const c = championships.find(x => x.id === id); return c ? `${c.nome} · ${c.ano}` : ''; };
+  const teamIdsDe = (champId) => (champId ? (champsDe.get(champId) || new Set()) : null);
 
-  const elegiveis = players.filter(p => {
-    if (busca.trim() && !p.nome.toLowerCase().includes(busca.trim().toLowerCase())) return false;
-    if (teamIdsFiltro) return teamIdsFiltro.has(p.teamId);
-    if (teamIdsNac) return teamIdsNac.has(p.teamId);
-    return true;
-  }).sort((a, b) => a.nome.localeCompare(b.nome));
-  const convMap = new Map(players.map(p => [p.id, p]));
-  const listaConv = convocados.map(id => convMap.get(id)).filter(Boolean);
-  const listaFiltrada = teamIdsFiltro ? listaConv.filter(p => teamIdsFiltro.has(p.teamId)) : listaConv;
-  const contaPorChamp = useMemo(() => {
-    const m = new Map();
-    championships.forEach(c => {
-      const ids = champsDe.get(c.id) || new Set();
-      m.set(c.id, listaConv.filter(p => ids.has(p.teamId)).length);
-    });
-    return m;
-  }, [championships, champsDe, listaConv]);
-  const championshipsDoJogador = (p) => championships.filter(c => (champsDe.get(c.id) || new Set()).has(p.teamId));
+  const ordenados = useMemo(() => registros.slice().sort((a, b) => {
+    const da = a.dataConvocatoria || a.criadoEm || '', db = b.dataConvocatoria || b.criadoEm || '';
+    return db.localeCompare(da);
+  }), [registros]);
 
-  function guardar(ids) {
-    refConvocados.current = ids;
-    setConvocados(ids);
-    const selecaoNacional = { ...(cfg.selecaoNacional || {}), convocados: ids, atualizadoEm: new Date().toISOString() };
-    if (logAcao) logAcao('selecao', `Convocação da Seleção Nacional atualizada (${ids.length} jogador(es))`, undefined, { selecaoNacional });
+  const visiveis = ordenados.filter(r =>
+    (filtroTipo === 'todos' || (r.tipo || 'pre') === filtroTipo) &&
+    (filtroChamp === 'todos' || (r.champId || '') === filtroChamp));
+
+  const nPorTipo = (t) => ordenados.filter(r => (t === 'todos' || (r.tipo || 'pre') === t)).length;
+  const nPorChamp = (id) => ordenados.filter(r => id === 'todos' || (r.champId || '') === id).length;
+
+  function abrirNova() {
+    setEditId('');
+    setForm({ tipo: 'pre', champId: filtroChamp !== 'todos' ? filtroChamp : (championships[0] ? championships[0].id : ''), dataConvocatoria: diaLocal(), dataEvento: '', prazoConfirmacao: '', observacoes: '' });
+    setAlvo('');
+    setBusca('');
+  }
+  function abrirEdicao(r) {
+    setEditId(r.id);
+    setForm({ tipo: r.tipo || 'pre', champId: r.champId || '', dataConvocatoria: r.dataConvocatoria || '', dataEvento: r.dataEvento || '', prazoConfirmacao: r.prazoConfirmacao || '', observacoes: r.observacoes || '' });
+    setAlvo('');
+    setBusca('');
+  }
+  const preDoForm = useMemo(() => form ? ordenados.find(r => r.id !== editId && (r.tipo || 'pre') === 'pre' && (r.champId || '') === (form.champId || '')) : null, [form, editId, ordenados]);
+
+  function persistir(novos, msg) {
+    const selecaoNacional = { ...selNac, convocatorias: novos, atualizadoEm: new Date().toISOString() };
+    delete selecaoNacional.convocados;
+    if (logAcao) logAcao('selecao', msg, undefined, { selecaoNacional });
     else updateConfig([{ ...cfg, id: 'app', selecaoNacional }]);
   }
-  function convocar(p) {
-    const atuais = refConvocados.current;
-    if (atuais.includes(p.id)) return;
-    guardar([...atuais, p.id]);
+
+  const guardadoRef = useRef(false);
+  useEffect(() => {
+    if (!gestao || !temLegado || guardadoRef.current) return;
+    guardadoRef.current = true;
+    const novos = registros.map(r => ({ ...r, id: r.id === 'conv_legado' ? uid('conv') : r.id, criadoEm: r.criadoEm || new Date().toISOString() }));
+    persistir(novos, `Lista de convocados convertida em convocatória (${novos.length})`);
+  }, [gestao, temLegado]);
+
+  function criar() {
+    if (!form) return;
+    const novo = {
+      id: uid('conv'),
+      tipo: form.tipo === 'final' ? 'final' : 'pre',
+      champId: form.champId || '',
+      dataConvocatoria: form.dataConvocatoria || diaLocal(),
+      dataEvento: form.dataEvento || '',
+      prazoConfirmacao: form.prazoConfirmacao || '',
+      observacoes: form.observacoes || '',
+      convocados: [],
+      criadoEm: new Date().toISOString()
+    };
+    persistir([...registros, novo], `Nova ${CONV_TIPOS[novo.tipo]} criada${novo.champId ? ` para «${champNome(novo.champId)}»` : ''}`);
+    setForm(null);
+    setEditId('');
+    setAlvo(novo.id);
+    setBusca('');
   }
-  function dispensar(p) {
-    guardar(refConvocados.current.filter(id => id !== p.id));
+  function copiarPre() {
+    if (!form || !preDoForm) return;
+    const novo = {
+      id: uid('conv'), tipo: form.tipo === 'final' ? 'final' : 'pre', champId: form.champId || '',
+      dataConvocatoria: form.dataConvocatoria || diaLocal(), dataEvento: form.dataEvento || '',
+      prazoConfirmacao: form.prazoConfirmacao || '', observacoes: form.observacoes || '',
+      convocados: (preDoForm.convocados || []).slice(), criadoEm: new Date().toISOString()
+    };
+    persistir([...registros, novo], `Nova ${CONV_TIPOS[novo.tipo]} criada a partir da pré-convocatória (${novo.convocados.length} jogador(es))`);
+    setForm(null);
+    setEditId('');
+    setAlvo(novo.id);
+    setBusca('');
   }
+  function guardarEdicao() {
+    if (!form || !editId) return;
+    const alvoReg = registros.find(r => r.id === editId);
+    if (!alvoReg) return;
+    const novo = {
+      ...alvoReg,
+      tipo: form.tipo === 'final' ? 'final' : 'pre',
+      champId: form.champId || '',
+      dataConvocatoria: form.dataConvocatoria || diaLocal(),
+      dataEvento: form.dataEvento || '',
+      prazoConfirmacao: form.prazoConfirmacao || '',
+      observacoes: form.observacoes || '',
+      atualizadoEm: new Date().toISOString()
+    };
+    persistir(registros.map(r => (r.id === editId ? novo : r)), `${CONV_TIPOS[novo.tipo]} actualizada (${(novo.convocados || []).length} jogador(es))`);
+    setForm(null);
+    setEditId('');
+  }
+  function eliminar(r) {
+    persistir(registros.filter(x => x.id !== r.id), `${CONV_TIPOS[r.tipo || 'pre']} eliminada (${(r.convocados || []).length} jogador(es))`);
+    if (alvo === r.id) setAlvo('');
+    if (editId === r.id) { setEditId(''); setForm(null); }
+  }
+  function alternar(r, p) {
+    const atuais = Array.isArray(r.convocados) ? r.convocados : [];
+    const ja = atuais.includes(p.id);
+    const nova = ja ? atuais.filter(id => id !== p.id) : [...atuais, p.id];
+    const novoReg = { ...r, convocados: nova, atualizadoEm: new Date().toISOString() };
+    persistir(registros.map(x => (x.id === r.id ? novoReg : x)), `${ja ? 'Dispensa' : 'Convocação'} de ${p.nome} — ${CONV_TIPOS[r.tipo || 'pre']}`);
+  }
+
+  const regAlvo = registros.find(r => r.id === alvo) || null;
+  const teamIdsAlvo = regAlvo ? teamIdsDe(regAlvo.champId) : null;
+  const elegiveis = useMemo(() => {
+    if (!regAlvo) return [];
+    return players.filter(p => {
+      if (busca.trim() && !p.nome.toLowerCase().includes(busca.trim().toLowerCase())) return false;
+      if (teamIdsAlvo) return teamIdsAlvo.has(p.teamId);
+      return true;
+    }).sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [regAlvo, players, busca, teamIdsAlvo]);
 
   return (
     <div>
@@ -2815,60 +2909,154 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
         <div>
           <h1 className="fx-h1">Seleção Nacional</h1>
           <div className="fx-sub">
-            {champDoFiltro
-              ? `Convocados de «${champDoFiltro.nome}» · ${listaFiltrada.length} de ${listaConv.length} jogador(es)`
-              : `Convocados da Seleção Nacional · ${listaConv.length} jogador(es) em todos os campeonatos`}
+            {visiveis.length === ordenados.length
+              ? `${ordenados.length} convocatória(s) lançada(s) · ${ordenados.reduce((n, r) => n + (r.convocados || []).length, 0)} convocação(ões)`
+              : `${visiveis.length} de ${ordenados.length} convocatória(s)`}
           </div>
         </div>
-        {championships.length > 0 && (
-          <select className="fx-select" style={{ width: 'auto', flexShrink: 0, maxWidth: 260 }}
-            value={filtroChamp} onChange={e => setFiltroChamp(e.target.value)} aria-label="Filtrar convocados por campeonato">
-            <option value="todos">Todos os campeonatos ({listaConv.length})</option>
-            {championships.map(c => (
-              <option key={c.id} value={c.id}>{c.nome} · {c.ano} ({contaPorChamp.get(c.id) || 0})</option>
-            ))}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {championships.length > 0 && (
+            <select className="fx-select" style={{ width: 'auto', flexShrink: 0, maxWidth: 240 }}
+              value={filtroChamp} onChange={e => setFiltroChamp(e.target.value)} aria-label="Filtrar por campeonato">
+              <option value="todos">Todos os campeonatos ({nPorChamp('todos')})</option>
+              {championships.map(c => <option key={c.id} value={c.id}>{c.nome} · {c.ano} ({nPorChamp(c.id)})</option>)}
+            </select>
+          )}
+          <select className="fx-select" style={{ width: 'auto', flexShrink: 0, maxWidth: 220 }}
+            value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)} aria-label="Filtrar por tipo">
+            <option value="todos">Pré e final ({nPorTipo('todos')})</option>
+            <option value="pre">Pré-convocatória ({nPorTipo('pre')})</option>
+            <option value="final">Convocatória final ({nPorTipo('final')})</option>
           </select>
-        )}
-      </div>
-
-      <div className="fx-panel">
-        <h2 className="fx-panel-title">Convocados ({listaFiltrada.length})</h2>
-        {listaFiltrada.length === 0 ? <div className="fx-empty">{listaConv.length === 0 ? 'Nenhum jogador convocado ainda.' : `Nenhum jogador de «${champDoFiltro ? champDoFiltro.nome : ''}» foi convocado.`}</div> : (
-          <div className="fx-scroll">
-          <table className="fx-table">
-            <thead><tr><th>Jogador</th><th>Equipa</th>{noFiltro ? <th>Campeonatos</th> : null}{gestao && <th></th>}</tr></thead>
-            <tbody>
-              {listaFiltrada.map((p, i) => (
-                <tr key={p.id}>
-                  <td><div className="fx-namecell"><span className="fx-rank" style={{ minWidth: 20 }}>{i + 1}</span><Avatar src={p.foto} size={26} shape="circle" fallbackColor={teamColor(p.teamId)} initials={p.nome.slice(0, 2).toUpperCase()} />{p.nome}</div></td>
-                  <td><span className="fx-chip" style={{ background: teamColor(p.teamId) }} />{teamName(p.teamId)}</td>
-                  {noFiltro ? <td>{championshipsDoJogador(p).map(c => <span key={c.id} className={'fx-role-badge ' + c.nivel}>{c.nome}</span>)}</td> : null}
-                  {gestao && <td><button className="fx-btn fx-btn-icon fx-btn-danger" onClick={() => dispensar(p)} title="Dispensar"><X size={14} /></button></td>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        )}
+        </div>
       </div>
 
       {gestao && (
         <div className="fx-panel">
-          <h2 className="fx-panel-title">Convocar jogador</h2>
+          <h2 className="fx-panel-title">{editId ? 'Editar convocatória' : 'Nova convocatória'}</h2>
+          {!form ? (
+            <button type="button" className="fx-btn fx-btn-primary" onClick={abrirNova}><Plus size={14} /> Lançar convocatória</button>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 12 }}>
+                <div className="fx-field">
+                  <label>Tipo</label>
+                  <select className="fx-select" value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value })}>
+                    <option value="pre">Pré-convocatória</option>
+                    <option value="final">Convocatória final</option>
+                  </select>
+                </div>
+                <div className="fx-field">
+                  <label>Campeonato</label>
+                  <select className="fx-select" value={form.champId} onChange={e => setForm({ ...form, champId: e.target.value })}>
+                    <option value="">— sem campeonato —</option>
+                    {championships.map(c => <option key={c.id} value={c.id}>{c.nome} · {c.ano}{c.nivel === 'nacional' ? ' (Nacional)' : ''}</option>)}
+                  </select>
+                </div>
+                <div className="fx-field">
+                  <label>Data da convocatória</label>
+                  <input type="date" className="fx-input" value={form.dataConvocatoria} onChange={e => setForm({ ...form, dataConvocatoria: e.target.value })} />
+                </div>
+                <div className="fx-field">
+                  <label>Data do evento</label>
+                  <input type="date" className="fx-input" value={form.dataEvento} onChange={e => setForm({ ...form, dataEvento: e.target.value })} />
+                </div>
+                <div className="fx-field">
+                  <label>Prazo de confirmação</label>
+                  <input type="date" className="fx-input" value={form.prazoConfirmacao} onChange={e => setForm({ ...form, prazoConfirmacao: e.target.value })} />
+                </div>
+                <div className="fx-field" style={{ gridColumn: '1 / -1' }}>
+                  <label>Observações</label>
+                  <input className="fx-input" value={form.observacoes} onChange={e => setForm({ ...form, observacoes: e.target.value })} placeholder="Local de concentração, nota aos jogadores…" />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {editId
+                  ? <button type="button" className="fx-btn fx-btn-primary" onClick={guardarEdicao}><Check size={14} /> Guardar alterações</button>
+                  : <button type="button" className="fx-btn fx-btn-primary" onClick={criar}><Check size={14} /> Criar convocatória</button>}
+                {!editId && preDoForm && (
+                  <button type="button" className="fx-btn" onClick={copiarPre}><Copy size={14} /> Criar copiando a pré-convocatória ({(preDoForm.convocados || []).length})</button>
+                )}
+                <button type="button" className="fx-btn" onClick={() => { setForm(null); setEditId(''); }}>Cancelar</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {visiveis.length === 0 ? (
+        <div className="fx-panel"><div className="fx-empty">
+          {ordenados.length === 0
+            ? (gestao ? 'Ainda não há convocatórias lançadas. Use «Lançar convocatória» para criar a primeira.' : 'O administrador ainda não lançou nenhuma convocatória.')
+            : 'Nenhuma convocatória corresponde aos filtros escolhidos.'}
+        </div></div>
+      ) : visiveis.map(r => {
+        const lista = (r.convocados || []).map(id => convMap.get(id)).filter(Boolean);
+        return (
+          <div className="fx-panel" key={r.id}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+              <div>
+                <h2 className="fx-panel-title" style={{ marginBottom: 4 }}>
+                  {CONV_TIPOS[r.tipo || 'pre']}{r.champId ? ` — ${champNome(r.champId)}` : ''}
+                </h2>
+                <div className="fx-sub" style={{ marginBottom: 0 }}>
+                  {r.dataConvocatoria ? `Lançada em ${convData(r.dataConvocatoria)}` : 'Sem data de lançamento'}
+                  {r.dataEvento ? ` · Evento em ${convData(r.dataEvento)}` : ''}
+                  {r.prazoConfirmacao ? ` · Confirmar até ${convData(r.prazoConfirmacao)}` : ''}
+                  {` · ${lista.length} jogador(es)`}
+                </div>
+                {r.observacoes ? <div className="fx-note" style={{ marginTop: 6 }}>{r.observacoes}</div> : null}
+              </div>
+              {gestao && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button type="button" className={'fx-btn' + (alvo === r.id ? ' fx-btn-primary' : '')} onClick={() => { setAlvo(alvo === r.id ? '' : r.id); setBusca(''); }}>
+                    <Plus size={13} /> {alvo === r.id ? 'A fechar' : 'Adicionar jogadores'}
+                  </button>
+                  <button type="button" className="fx-btn" onClick={() => abrirEdicao(r)} title="Editar"><Pencil size={13} /> Editar</button>
+                  <button type="button" className="fx-btn fx-btn-danger" onClick={() => eliminar(r)} title="Eliminar"><Trash2 size={13} /> Eliminar</button>
+                </div>
+              )}
+            </div>
+
+            {lista.length === 0 ? <div className="fx-empty">Nenhum jogador nesta convocatória.</div> : (
+              <div className="fx-scroll">
+                <table className="fx-table">
+                  <thead><tr><th>#</th><th>Jogador</th><th>Equipa</th><th>Posição</th>{gestao && <th></th>}</tr></thead>
+                  <tbody>
+                    {lista.map((p, i) => (
+                      <tr key={p.id}>
+                        <td><span className="fx-rank" style={{ minWidth: 20 }}>{i + 1}</span></td>
+                        <td><div className="fx-namecell"><Avatar src={p.foto} size={26} shape="circle" fallbackColor={teamColor(p.teamId)} initials={p.nome.slice(0, 2).toUpperCase()} />{p.nome}</div></td>
+                        <td><span className="fx-chip" style={{ background: teamColor(p.teamId) }} />{teamName(p.teamId)}</td>
+                        <td>{p.posicao || '—'}</td>
+                        {gestao && <td><button className="fx-btn fx-btn-icon fx-btn-danger" onClick={() => alternar(r, p)} title="Dispensar"><X size={14} /></button></td>}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {gestao && regAlvo && (
+        <div className="fx-panel">
+          <h2 className="fx-panel-title">Convocar jogador — {CONV_TIPOS[regAlvo.tipo || 'pre']}{regAlvo.champId ? ` · ${champNome(regAlvo.champId)}` : ''}</h2>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <input className="fx-input" style={{ flex: 1, minWidth: 200 }} placeholder="Procurar jogador por nome…" value={busca} onChange={e => setBusca(e.target.value)} />
-            {champDoFiltro
-              ? <span className="fx-tag"><Flag size={12} /> Equipas de «{champDoFiltro.nome}»</span>
-              : nacional ? <span className="fx-tag"><Flag size={12} /> Jogadores de equipas do Nacional</span> : null}
+            {regAlvo.champId
+              ? <span className="fx-tag"><Flag size={12} /> Equipas de «{champNome(regAlvo.champId)}»</span>
+              : <span className="fx-tag"><Flag size={12} /> Todos os jogadores</span>}
           </div>
           <div className="fx-scroll" style={{ maxHeight: 360 }}>
             {elegiveis.length === 0 ? <div className="fx-empty">{busca.trim() ? 'Nenhum jogador corresponde à pesquisa.' : 'Nenhum jogador disponível.'}</div> : elegiveis.map(p => {
-              const ja = convocados.includes(p.id);
+              const ja = (regAlvo.convocados || []).includes(p.id);
               return (
                 <div className="fx-podium" key={p.id}>
                   <Avatar src={p.foto} size={30} shape="circle" fallbackColor={teamColor(p.teamId)} initials={p.nome.slice(0, 2).toUpperCase()} />
-                  <div style={{ flex: 1 }}>{p.nome} <span style={{ color: 'var(--ink-dim)', fontSize: '0.82rem' }}>· {teamName(p.teamId)} · {p.posicao}</span></div>
-                  {ja ? <button className="fx-btn fx-btn-danger" onClick={() => dispensar(p)}><X size={13} /> Dispensar</button> : <button className="fx-btn fx-btn-primary" onClick={() => convocar(p)}><Plus size={13} /> Convocar</button>}
+                  <div style={{ flex: 1 }}>{p.nome} <span style={{ color: 'var(--ink-dim)', fontSize: '0.82rem' }}>· {teamName(p.teamId)} · {p.posicao || '—'}</span></div>
+                  {ja ? <button className="fx-btn fx-btn-danger" onClick={() => alternar(regAlvo, p)}><X size={13} /> Dispensar</button> : <button className="fx-btn fx-btn-primary" onClick={() => alternar(regAlvo, p)}><Plus size={13} /> Convocar</button>}
                 </div>
               );
             })}
