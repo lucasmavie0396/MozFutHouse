@@ -670,6 +670,7 @@ export default function MozFutHouse() {
     { id: 'resultados', label: 'Resultados', icon: Settings },
     { id: 'artilharia', label: 'Artilharia', icon: Target },
     { id: 'classificacao', label: 'Classificação', icon: ListOrdered },
+    { id: 'selecao', label: 'Seleção Nacional', icon: Flag },
     { id: 'estatisticas', label: 'Melhor Jogador', icon: Star },
     { id: 'campeonatos', label: 'Campeonatos', icon: Trophy },
   ];
@@ -822,7 +823,7 @@ export default function MozFutHouse() {
               {tab === 'artilharia' && <Artilharia artilheiros={artilheiros} activeChamp={activeChamp} />}
               {tab === 'selecao' && <SelecaoNacional players={players} teams={teams} teamName={teamName} teamColor={teamColor}
                 championships={championships} config={config} updateConfig={updateConfig}
-                logAcao={isAdmin ? logAcao : null} edn={isAdmin} />}
+                logAcao={(isAdmin || isAssociacao) ? logAcao : null} edn={isAdmin || isAssociacao} />}
               {tab === 'estatisticas' && <Estatisticas stats={statsJogadores} activeChamp={activeChamp} />}
               {tab === 'campeonatos' && (isAdmin || isAssociacao) && (
                 <Campeonatos championships={championships} teams={teams} matches={matches} standings={standings} updateChampionships={updateChampionships}
@@ -2747,50 +2748,101 @@ function Artilharia({ artilheiros, activeChamp }) {
 function SelecaoNacional({ players, teams, teamName, teamColor, championships, config, updateConfig, logAcao, edn }) {
   const gestao = !!edn;
   const [busca, setBusca] = useState('');
+  const [filtroChamp, setFiltroChamp] = useState('todos');
   const cfg = (config && config[0]) || {};
   const selNac = cfg.selecaoNacional || {};
   const sel = Array.isArray(selNac.convocados) ? selNac.convocados : [];
   const [convocados, setConvocados] = useState(sel);
-  useEffect(() => { setConvocados(Array.isArray(cfg.selecaoNacional && cfg.selecaoNacional.convocados) ? cfg.selecaoNacional.convocados : []); }, [cfg.selecaoNacional]);
+  const refConvocados = useRef(sel);
+  useEffect(() => {
+    const lista = Array.isArray(cfg.selecaoNacional && cfg.selecaoNacional.convocados) ? cfg.selecaoNacional.convocados : [];
+    refConvocados.current = lista;
+    setConvocados(lista);
+  }, [cfg.selecaoNacional]);
 
   const nacional = championships.find(c => c.nivel === 'nacional');
-  const teamIdsNac = nacional ? new Set(teams.filter(t => (t.champIds || []).includes(nacional.id)).map(t => t.id)) : null;
+  const champsDe = useMemo(() => {
+    const m = new Map();
+    teams.forEach(t => (t.champIds || []).forEach(id => {
+      if (!m.has(id)) m.set(id, new Set());
+      m.get(id).add(t.id);
+    }));
+    return m;
+  }, [teams]);
+  const noFiltro = filtroChamp !== 'todos' && championships.some(c => c.id === filtroChamp);
+  const champDoFiltro = noFiltro ? championships.find(c => c.id === filtroChamp) : null;
+  const teamIdsFiltro = noFiltro ? (champsDe.get(filtroChamp) || new Set()) : null;
+  const teamIdsNac = nacional ? (champsDe.get(nacional.id) || new Set()) : null;
+
   const elegiveis = players.filter(p => {
     if (busca.trim() && !p.nome.toLowerCase().includes(busca.trim().toLowerCase())) return false;
+    if (teamIdsFiltro) return teamIdsFiltro.has(p.teamId);
     if (teamIdsNac) return teamIdsNac.has(p.teamId);
     return true;
   }).sort((a, b) => a.nome.localeCompare(b.nome));
   const convMap = new Map(players.map(p => [p.id, p]));
   const listaConv = convocados.map(id => convMap.get(id)).filter(Boolean);
+  const listaFiltrada = teamIdsFiltro ? listaConv.filter(p => teamIdsFiltro.has(p.teamId)) : listaConv;
+  const contaPorChamp = useMemo(() => {
+    const m = new Map();
+    championships.forEach(c => {
+      const ids = champsDe.get(c.id) || new Set();
+      m.set(c.id, listaConv.filter(p => ids.has(p.teamId)).length);
+    });
+    return m;
+  }, [championships, champsDe, listaConv]);
+  const championshipsDoJogador = (p) => championships.filter(c => (champsDe.get(c.id) || new Set()).has(p.teamId));
 
   function guardar(ids) {
+    refConvocados.current = ids;
     setConvocados(ids);
     const selecaoNacional = { ...(cfg.selecaoNacional || {}), convocados: ids, atualizadoEm: new Date().toISOString() };
     if (logAcao) logAcao('selecao', `Convocação da Seleção Nacional atualizada (${ids.length} jogador(es))`, undefined, { selecaoNacional });
     else updateConfig([{ ...cfg, id: 'app', selecaoNacional }]);
   }
   function convocar(p) {
-    if (!convocados.includes(p.id)) guardar([...convocados, p.id]);
+    const atuais = refConvocados.current;
+    if (atuais.includes(p.id)) return;
+    guardar([...atuais, p.id]);
   }
   function dispensar(p) {
-    guardar(convocados.filter(id => id !== p.id));
+    guardar(refConvocados.current.filter(id => id !== p.id));
   }
 
   return (
     <div>
-      <div className="fx-top"><div><h1 className="fx-h1">Seleção Nacional</h1><div className="fx-sub">{nacional ? `Convocados para «${nacional.nome}» · ${listaConv.length} jogador(es)` : (teamIdsNac ? 'Convocados para a Seleção Nacional' : 'Crie o campeonato Nacional para gerir as convocações')}</div></div></div>
+      <div className="fx-top">
+        <div>
+          <h1 className="fx-h1">Seleção Nacional</h1>
+          <div className="fx-sub">
+            {champDoFiltro
+              ? `Convocados de «${champDoFiltro.nome}» · ${listaFiltrada.length} de ${listaConv.length} jogador(es)`
+              : `Convocados da Seleção Nacional · ${listaConv.length} jogador(es) em todos os campeonatos`}
+          </div>
+        </div>
+        {championships.length > 0 && (
+          <select className="fx-select" style={{ width: 'auto', flexShrink: 0, maxWidth: 260 }}
+            value={filtroChamp} onChange={e => setFiltroChamp(e.target.value)} aria-label="Filtrar convocados por campeonato">
+            <option value="todos">Todos os campeonatos ({listaConv.length})</option>
+            {championships.map(c => (
+              <option key={c.id} value={c.id}>{c.nome} · {c.ano} ({contaPorChamp.get(c.id) || 0})</option>
+            ))}
+          </select>
+        )}
+      </div>
 
       <div className="fx-panel">
-        <h2 className="fx-panel-title">Convocados ({listaConv.length})</h2>
-        {listaConv.length === 0 ? <div className="fx-empty">Nenhum jogador convocado ainda.</div> : (
+        <h2 className="fx-panel-title">Convocados ({listaFiltrada.length})</h2>
+        {listaFiltrada.length === 0 ? <div className="fx-empty">{listaConv.length === 0 ? 'Nenhum jogador convocado ainda.' : `Nenhum jogador de «${champDoFiltro ? champDoFiltro.nome : ''}» foi convocado.`}</div> : (
           <div className="fx-scroll">
           <table className="fx-table">
-            <thead><tr><th>Jogador</th><th>Equipa</th>{gestao && <th></th>}</tr></thead>
+            <thead><tr><th>Jogador</th><th>Equipa</th>{noFiltro ? <th>Campeonatos</th> : null}{gestao && <th></th>}</tr></thead>
             <tbody>
-              {listaConv.map((p, i) => (
+              {listaFiltrada.map((p, i) => (
                 <tr key={p.id}>
                   <td><div className="fx-namecell"><span className="fx-rank" style={{ minWidth: 20 }}>{i + 1}</span><Avatar src={p.foto} size={26} shape="circle" fallbackColor={teamColor(p.teamId)} initials={p.nome.slice(0, 2).toUpperCase()} />{p.nome}</div></td>
                   <td><span className="fx-chip" style={{ background: teamColor(p.teamId) }} />{teamName(p.teamId)}</td>
+                  {noFiltro ? <td>{championshipsDoJogador(p).map(c => <span key={c.id} className={'fx-role-badge ' + c.nivel}>{c.nome}</span>)}</td> : null}
                   {gestao && <td><button className="fx-btn fx-btn-icon fx-btn-danger" onClick={() => dispensar(p)} title="Dispensar"><X size={14} /></button></td>}
                 </tr>
               ))}
@@ -2805,7 +2857,9 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
           <h2 className="fx-panel-title">Convocar jogador</h2>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <input className="fx-input" style={{ flex: 1, minWidth: 200 }} placeholder="Procurar jogador por nome…" value={busca} onChange={e => setBusca(e.target.value)} />
-            {nacional && <span className="fx-tag"><Flag size={12} /> Jogadores de equipas do Nacional</span>}
+            {champDoFiltro
+              ? <span className="fx-tag"><Flag size={12} /> Equipas de «{champDoFiltro.nome}»</span>
+              : nacional ? <span className="fx-tag"><Flag size={12} /> Jogadores de equipas do Nacional</span> : null}
           </div>
           <div className="fx-scroll" style={{ maxHeight: 360 }}>
             {elegiveis.length === 0 ? <div className="fx-empty">{busca.trim() ? 'Nenhum jogador corresponde à pesquisa.' : 'Nenhum jogador disponível.'}</div> : elegiveis.map(p => {
