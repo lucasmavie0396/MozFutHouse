@@ -822,7 +822,7 @@ export default function MozFutHouse() {
               {tab === 'classificacao' && <Classificacao standings={standings} />}
               {tab === 'artilharia' && <Artilharia artilheiros={artilheiros} activeChamp={activeChamp} />}
               {tab === 'selecao' && <SelecaoNacional players={players} teams={teams} teamName={teamName} teamColor={teamColor}
-                championships={championships} config={config} updateConfig={updateConfig}
+                championships={championships} users={users} config={config} updateConfig={updateConfig}
                 logAcao={(isAdmin || isAssociacao) ? logAcao : null} edn={isAdmin || isAssociacao} />}
               {tab === 'estatisticas' && <Estatisticas stats={statsJogadores} activeChamp={activeChamp} />}
               {tab === 'campeonatos' && (isAdmin || isAssociacao) && (
@@ -2753,7 +2753,7 @@ function convData(str) {
   return isNaN(d.getTime()) ? String(str) : d.toLocaleDateString('pt-PT');
 }
 
-function SelecaoNacional({ players, teams, teamName, teamColor, championships, config, updateConfig, logAcao, edn }) {
+function SelecaoNacional({ players, teams, teamName, teamColor, championships, users, config, updateConfig, logAcao, edn }) {
   const gestao = !!edn;
   const cfg = (config && config[0]) || {};
   const selNac = cfg.selecaoNacional || {};
@@ -2762,7 +2762,7 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
   const registros = useMemo(() => {
     if (Array.isArray(selNac.convocatorias) && selNac.convocatorias.length) return selNac.convocatorias;
     if (listaAntiga.length) {
-      return [{ id: 'conv_legado', tipo: 'pre', champId: '', dataConvocatoria: '', dataEvento: '', prazoConfirmacao: '', observacoes: 'Lista inicial', convocados: listaAntiga, legado: true }];
+      return [{ id: 'conv_legado', tipo: 'pre', champId: '', champNome: '', dataConvocatoria: '', dataEvento: '', prazoConfirmacao: '', observacoes: 'Lista inicial', convocados: listaAntiga, legado: true }];
     }
     return [];
   }, [selNac, listaAntiga]);
@@ -2774,6 +2774,7 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
   const [form, setForm] = useState(null);
   const [alvo, setAlvo] = useState('');
   const [busca, setBusca] = useState('');
+  const [erroForm, setErroForm] = useState('');
 
   const champsDe = useMemo(() => {
     const m = new Map();
@@ -2784,34 +2785,54 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
     return m;
   }, [teams]);
   const convMap = useMemo(() => new Map(players.map(p => [p.id, p])), [players]);
-  const champNome = (id) => { const c = championships.find(x => x.id === id); return c ? `${c.nome} · ${c.ano}` : ''; };
+  const nomeChamp = (id) => { const c = championships.find(x => x.id === id); return c ? `${c.nome} · ${c.ano}` : ''; };
+  const champsDeClube = useMemo(() => {
+    const s = new Set();
+    (users || []).forEach(u => { if (u.role === 'clube' && u.champId) s.add(u.champId); });
+    return s;
+  }, [users]);
   const teamIdsDe = (champId) => (champId ? (champsDe.get(champId) || new Set()) : null);
+
+  const chaveChamp = (r) => (r.champId ? 'id:' + r.champId : (r.champNome ? 'nome:' + r.champNome : ''));
+  const rotuloChamp = (r) => (r.champId ? nomeChamp(r.champId) : (r.champNome || ''));
 
   const ordenados = useMemo(() => registros.slice().sort((a, b) => {
     const da = a.dataConvocatoria || a.criadoEm || '', db = b.dataConvocatoria || b.criadoEm || '';
     return db.localeCompare(da);
   }), [registros]);
 
+  const opcoesChamp = useMemo(() => {
+    const lista = championships.map(c => ({ chave: 'id:' + c.id, rotulo: `${c.nome} · ${c.ano}`, clube: champsDeClube.has(c.id), nivel: c.nivel }));
+    const usados = registros.filter(r => !r.champId && r.champNome).map(r => 'nome:' + r.champNome);
+    usados.forEach(k => { if (!lista.some(x => x.chave === k)) lista.push({ chave: k, rotulo: k.slice(5), livre: true }); });
+    return lista;
+  }, [championships, champsDeClube, registros]);
+
   const visiveis = ordenados.filter(r =>
     (filtroTipo === 'todos' || (r.tipo || 'pre') === filtroTipo) &&
-    (filtroChamp === 'todos' || (r.champId || '') === filtroChamp));
+    (filtroChamp === 'todos' || chaveChamp(r) === filtroChamp));
 
   const nPorTipo = (t) => ordenados.filter(r => (t === 'todos' || (r.tipo || 'pre') === t)).length;
-  const nPorChamp = (id) => ordenados.filter(r => id === 'todos' || (r.champId || '') === id).length;
+  const nPorChamp = (chave) => ordenados.filter(r => chave === 'todos' || chaveChamp(r) === chave).length;
 
   function abrirNova() {
+    const inicial = filtroChamp.startsWith('id:') ? filtroChamp.slice(3) : (championships[0] ? championships[0].id : '');
     setEditId('');
-    setForm({ tipo: 'pre', champId: filtroChamp !== 'todos' ? filtroChamp : (championships[0] ? championships[0].id : ''), dataConvocatoria: diaLocal(), dataEvento: '', prazoConfirmacao: '', observacoes: '' });
+    setForm({ tipo: 'pre', champId: inicial, escreverChamp: false, nomeChamp: '', dataConvocatoria: diaLocal(), dataEvento: '', prazoConfirmacao: '', observacoes: '' });
     setAlvo('');
     setBusca('');
   }
   function abrirEdicao(r) {
     setEditId(r.id);
-    setForm({ tipo: r.tipo || 'pre', champId: r.champId || '', dataConvocatoria: r.dataConvocatoria || '', dataEvento: r.dataEvento || '', prazoConfirmacao: r.prazoConfirmacao || '', observacoes: r.observacoes || '' });
+    setForm({ tipo: r.tipo || 'pre', champId: r.champId || '', escreverChamp: !r.champId && !!r.champNome, nomeChamp: r.champNome || '', dataConvocatoria: r.dataConvocatoria || '', dataEvento: r.dataEvento || '', prazoConfirmacao: r.prazoConfirmacao || '', observacoes: r.observacoes || '' });
     setAlvo('');
     setBusca('');
   }
-  const preDoForm = useMemo(() => form ? ordenados.find(r => r.id !== editId && (r.tipo || 'pre') === 'pre' && (r.champId || '') === (form.champId || '')) : null, [form, editId, ordenados]);
+  const preDoForm = useMemo(() => {
+    if (!form) return null;
+    const chave = form.champId ? 'id:' + form.champId : (form.nomeChamp ? 'nome:' + form.nomeChamp : '');
+    return ordenados.find(r => r.id !== editId && (r.tipo || 'pre') === 'pre' && chaveChamp(r) === chave) || null;
+  }, [form, editId, ordenados]);
 
   function persistir(novos, msg) {
     const selecaoNacional = { ...selNac, convocatorias: novos, atualizadoEm: new Date().toISOString() };
@@ -2830,10 +2851,14 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
 
   function criar() {
     if (!form) return;
+    const nomeLivre = form.escreverChamp ? (form.nomeChamp || '').trim() : '';
+    if (form.escreverChamp && !nomeLivre) { setErroForm('Escreva o nome do campeonato.'); return; }
+    setErroForm('');
     const novo = {
       id: uid('conv'),
       tipo: form.tipo === 'final' ? 'final' : 'pre',
-      champId: form.champId || '',
+      champId: form.escreverChamp ? '' : (form.champId || ''),
+      champNome: nomeLivre,
       dataConvocatoria: form.dataConvocatoria || diaLocal(),
       dataEvento: form.dataEvento || '',
       prazoConfirmacao: form.prazoConfirmacao || '',
@@ -2841,7 +2866,7 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
       convocados: [],
       criadoEm: new Date().toISOString()
     };
-    persistir([...registros, novo], `Nova ${CONV_TIPOS[novo.tipo]} criada${novo.champId ? ` para «${champNome(novo.champId)}»` : ''}`);
+    persistir([...registros, novo], `Nova ${CONV_TIPOS[novo.tipo]} criada para «${rotuloChamp(novo)}»`);
     setForm(null);
     setEditId('');
     setAlvo(novo.id);
@@ -2850,7 +2875,9 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
   function copiarPre() {
     if (!form || !preDoForm) return;
     const novo = {
-      id: uid('conv'), tipo: form.tipo === 'final' ? 'final' : 'pre', champId: form.champId || '',
+      id: uid('conv'), tipo: form.tipo === 'final' ? 'final' : 'pre',
+      champId: form.escreverChamp ? '' : (form.champId || ''),
+      champNome: form.escreverChamp ? (form.nomeChamp || '').trim() : '',
       dataConvocatoria: form.dataConvocatoria || diaLocal(), dataEvento: form.dataEvento || '',
       prazoConfirmacao: form.prazoConfirmacao || '', observacoes: form.observacoes || '',
       convocados: (preDoForm.convocados || []).slice(), criadoEm: new Date().toISOString()
@@ -2865,10 +2892,14 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
     if (!form || !editId) return;
     const alvoReg = registros.find(r => r.id === editId);
     if (!alvoReg) return;
+    const nomeLivre = form.escreverChamp ? (form.nomeChamp || '').trim() : '';
+    if (form.escreverChamp && !nomeLivre) { setErroForm('Escreva o nome do campeonato.'); return; }
+    setErroForm('');
     const novo = {
       ...alvoReg,
       tipo: form.tipo === 'final' ? 'final' : 'pre',
-      champId: form.champId || '',
+      champId: form.escreverChamp ? '' : (form.champId || ''),
+      champNome: nomeLivre,
       dataConvocatoria: form.dataConvocatoria || diaLocal(),
       dataEvento: form.dataEvento || '',
       prazoConfirmacao: form.prazoConfirmacao || '',
@@ -2915,11 +2946,11 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          {championships.length > 0 && (
-            <select className="fx-select" style={{ width: 'auto', flexShrink: 0, maxWidth: 240 }}
+          {opcoesChamp.length > 0 && (
+            <select className="fx-select" style={{ width: 'auto', flexShrink: 0, maxWidth: 260 }}
               value={filtroChamp} onChange={e => setFiltroChamp(e.target.value)} aria-label="Filtrar por campeonato">
               <option value="todos">Todos os campeonatos ({nPorChamp('todos')})</option>
-              {championships.map(c => <option key={c.id} value={c.id}>{c.nome} · {c.ano} ({nPorChamp(c.id)})</option>)}
+              {opcoesChamp.map(o => <option key={o.chave} value={o.chave}>{o.rotulo}{o.clube ? ' (clube)' : ''} ({nPorChamp(o.chave)})</option>)}
             </select>
           )}
           <select className="fx-select" style={{ width: 'auto', flexShrink: 0, maxWidth: 220 }}
@@ -2948,11 +2979,20 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
                 </div>
                 <div className="fx-field">
                   <label>Campeonato</label>
-                  <select className="fx-select" value={form.champId} onChange={e => setForm({ ...form, champId: e.target.value })}>
+                  <select className="fx-select" value={form.escreverChamp ? '__livre__' : (form.champId || '')}
+                    onChange={e => { const v = e.target.value; setForm({ ...form, escreverChamp: v === '__livre__', champId: v === '__livre__' ? '' : v, nomeChamp: v === '__livre__' ? form.nomeChamp : '' }); }}>
                     <option value="">— sem campeonato —</option>
-                    {championships.map(c => <option key={c.id} value={c.id}>{c.nome} · {c.ano}{c.nivel === 'nacional' ? ' (Nacional)' : ''}</option>)}
+                    {championships.map(c => <option key={c.id} value={c.id}>{c.nome} · {c.ano}{c.nivel === 'nacional' ? ' (Nacional)' : ''}{champsDeClube.has(c.id) ? ' (gerido pelo clube)' : ''}</option>)}
+                    <option value="__livre__">✎ Escrever o nome do campeonato…</option>
                   </select>
                 </div>
+                {form.escreverChamp && (
+                  <div className="fx-field">
+                    <label>Nome do campeonato</label>
+                    <input className="fx-input" value={form.nomeChamp} onChange={e => setForm({ ...form, nomeChamp: e.target.value })}
+                      placeholder="Ex.: Torneio de Presidente, Amistoso Internacional…" />
+                  </div>
+                )}
                 <div className="fx-field">
                   <label>Data da convocatória</label>
                   <input type="date" className="fx-input" value={form.dataConvocatoria} onChange={e => setForm({ ...form, dataConvocatoria: e.target.value })} />
@@ -2971,6 +3011,7 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {erroForm ? <div className="fx-note" style={{ color: 'var(--bad)' }}>{erroForm}</div> : null}
                 {editId
                   ? <button type="button" className="fx-btn fx-btn-primary" onClick={guardarEdicao}><Check size={14} /> Guardar alterações</button>
                   : <button type="button" className="fx-btn fx-btn-primary" onClick={criar}><Check size={14} /> Criar convocatória</button>}
@@ -2997,7 +3038,7 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
               <div>
                 <h2 className="fx-panel-title" style={{ marginBottom: 4 }}>
-                  {CONV_TIPOS[r.tipo || 'pre']}{r.champId ? ` — ${champNome(r.champId)}` : ''}
+                  {CONV_TIPOS[r.tipo || 'pre']}{rotuloChamp(r) ? ` — ${rotuloChamp(r)}` : ''}
                 </h2>
                 <div className="fx-sub" style={{ marginBottom: 0 }}>
                   {r.dataConvocatoria ? `Lançada em ${convData(r.dataConvocatoria)}` : 'Sem data de lançamento'}
@@ -3042,12 +3083,14 @@ function SelecaoNacional({ players, teams, teamName, teamColor, championships, c
 
       {gestao && regAlvo && (
         <div className="fx-panel">
-          <h2 className="fx-panel-title">Convocar jogador — {CONV_TIPOS[regAlvo.tipo || 'pre']}{regAlvo.champId ? ` · ${champNome(regAlvo.champId)}` : ''}</h2>
+          <h2 className="fx-panel-title">Convocar jogador — {CONV_TIPOS[regAlvo.tipo || 'pre']}{rotuloChamp(regAlvo) ? ` · ${rotuloChamp(regAlvo)}` : ''}</h2>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <input className="fx-input" style={{ flex: 1, minWidth: 200 }} placeholder="Procurar jogador por nome…" value={busca} onChange={e => setBusca(e.target.value)} />
             {regAlvo.champId
-              ? <span className="fx-tag"><Flag size={12} /> Equipas de «{champNome(regAlvo.champId)}»</span>
-              : <span className="fx-tag"><Flag size={12} /> Todos os jogadores</span>}
+              ? <span className="fx-tag"><Flag size={12} /> Equipas de «{nomeChamp(regAlvo.champId)}»</span>
+              : (regAlvo.champNome
+                ? <span className="fx-tag"><Flag size={12} /> «{regAlvo.champNome}» — sem limite de equipa</span>
+                : <span className="fx-tag"><Flag size={12} /> Todos os jogadores</span>)}
           </div>
           <div className="fx-scroll" style={{ maxHeight: 360 }}>
             {elegiveis.length === 0 ? <div className="fx-empty">{busca.trim() ? 'Nenhum jogador corresponde à pesquisa.' : 'Nenhum jogador disponível.'}</div> : elegiveis.map(p => {
